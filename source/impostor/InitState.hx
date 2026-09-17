@@ -3,26 +3,36 @@ package impostor;
 import flixel.FlxSprite;
 import flixel.FlxState;
 import flixel.addons.transition.FlxTransitionableState;
+import flixel.util.FlxDestroyUtil;
 import impostor.play.PlayState;
 
 class InitState extends FlxState
 {
-    override public function create() {
-        FlxSprite.defaultAntialiasing = false;
-        Conductor.init();
-        DiscordClient.init();
+	override public function create():Void
+	{
+		super.create();
 
-        #if FLX_MOUSE
-        FlxG.mouse.useSystemCursor = true;
-        #end
+		// Set default sprite antialiasing
+		FlxSprite.defaultAntialiasing = false;
 
-        startGame();
-    }
+		// Initialize core systems
+		Conductor.init();
+		DiscordClient.init();
 
-    function startGame() {
-        FlxTransitionableState.skipNextTransIn = true;
-        FlxTransitionableState.skipNextTransOut = true;
+		// Enable system cursor on desktop platforms
+		#if FLX_MOUSE
+		FlxG.mouse.useSystemCursor = true;
+		#end
 
-        FlxG.switchState(PlayState.new);
-    }
+		startGame();
+	}
+
+	function startGame():Void
+	{
+		// Skip transitions for faster startup
+		FlxTransitionableState.skipNextTransIn = true;
+		FlxTransitionableState.skipNextTransOut = true;
+
+		FlxG.switchState(new PlayState());
+	}
 }
