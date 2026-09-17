@@ -603,7 +603,7 @@ class Paths
 		//trace(folderOrImg);
 		//trace(spriteJson);
 		//trace(animationJson);
-		spr.loadAtlasEx(folderOrImg, spriteJson, animationJson);
+		spr.loadAtlas(Paths.getPath('$folderOrImg/$spriteJson', BINARY, null), Paths.getPath('$folderOrImg/$animationJson', TEXT, null));
 	}
 
 	/*private static function getContentFromFile(path:String):String

@@ -1,25 +1,64 @@
-### FNF-Specific
-# File used for the NG API. Should not be shared with others.
-APIStuff.hx
-art/build_x32-officialrelease.bat
-art/build_x64-officialrelease.bat
-art/test_x64-debug-officialrelease.bat
+# Compiled and build artifacts
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.class
+*.pyc
+__pycache__/
+*.swp
+*.swo
+*.tmp
 
-### VS Code
-export/*
-.vscode/*
-.haxelib/
-.github/
-*.code-workspace
-vs_Community.exe
-# Local history which shouldn't be shared.
-.history
-.ionide
-# ! means a file should be added regardless of it it gets ignored prior.
-# Including to allow others to use already set-up configuration tweaked for the project.
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-art/build_html.bat
-art/build_html-debug.bat
+# Dependencies
+node_modules/
+venv/
+.venv/
+.env
+.env.local
+*.env.*
+
+# Build directories
+dist/
+build/
+target/
+.mypy_cache/
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+
+# Editors
+.vscode/
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db
+*.log
+
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst

@@ -4,7 +4,7 @@ import flixel.FlxObject;
 import flixel.graphics.FlxGraphic;
 
 import flixel.animation.FlxAnimation;
-import flixel.system.debug.interaction.tools.Pointer.GraphicCursorCross;
+//import flixel.system.debug.interaction.tools.Pointer.GraphicCursorCross;
 import flixel.addons.transition.FlxTransitionableState;
 import flixel.addons.ui.*;
 import flixel.ui.FlxButton;
@@ -102,7 +102,7 @@ class CharacterEditorState extends MusicBeatState
 
 		addCharacter();
 
-		cameraFollowPointer = new FlxSprite().loadGraphic(FlxGraphic.fromClass(GraphicCursorCross));
+		cameraFollowPointer = new FlxSprite().makeGraphic(10, 10, FlxColor.RED);
 		cameraFollowPointer.setGraphicSize(40, 40);
 		cameraFollowPointer.updateHitbox();
 		add(cameraFollowPointer);
