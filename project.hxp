@@ -303,7 +303,7 @@ class Project extends HXProject
         if (include == null) include = [];
         if (exclude == null) exclude = [];
 
-        var targetPath:String = rename ?? path;
+        var targetPath:String = (rename != null) ? rename : path;
         if (targetPath != "") targetPath += "/";
 
         if (!FileSystem.exists(path))
@@ -342,7 +342,7 @@ class Project extends HXProject
     public function addAsset(path:String, ?rename:String, ?library:String, embed:Bool = false, ?padName:String):Void
     {
         var asset:Asset = new Asset(path, rename, null, embed, true);
-        asset.library = library ?? "default";
+        asset.library = (library != null) ? library : "default";
 
         assets.push(asset);
     }
