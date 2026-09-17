@@ -1,0 +1,15 @@
+{
+	"songs": [
+		["idfk", "idfk", [255, 77, 116]],
+		["sauces cookus", "face", [255, 77, 116]],
+		["room code", "face", [255, 77, 116]]
+	],
+
+	"storyName": "",
+	"weekBefore": "",
+	"weekName": "",
+	"startUnlocked": true,
+
+	"hideStoryMode": true,
+	"hideFreeplay": false
+}

@@ -1,211 +1,107 @@
-# Friday Night Funkin' - VS IMPOSTOR Pixel
+# Friday Night Funkin' - Psych Engine
+Engine originally used on [Mind Games Mod](https://gamebanana.com/mods/301107), intended to be a fix for the vanilla version's many issues while keeping the casual play aspect of it. Also aiming to be an easier alternative to newbie coders.
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Desktop%20%7C%20Mobile%20%7C%20Web-lightgrey)](#)
-[![Haxe](https://img.shields.io/badge/haxe-4.3+-ea8223.svg?logo=haxe)](https://haxe.org/)
-[![Flixel](https://img.shields.io/badge/flixel-5.6+-000000.svg?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTEyIDJMMiA3bDEwIDUgMTAtNS0xMC01em0wIDlsLTEwLTUgMTAgNSAxMC01LTEwIDV6bTAgOWwtMTAtNSAxMCA1IDEwLTUtMTAgNXoiLz48L3N2Zz4=)](https://flixel.org/)
+## Installation:
 
-**VS IMPOSTOR Pixel** — это модификация для [Friday Night Funkin'](https://ninja-muffin24.itch.io/funkin), основанная на моде [VS IMPOSTOR](https://vsimpostor.com) от команды IMPOSTORM. Мод вдохновлён популярной игрой [Among Us](https://www.innersloth.com/games/among-us) от Innersloth.
+Refer to [the Build Instructions](./BUILDING.md)
 
-<div align="center">
-    <img src=".artwork/github/logo-big.gif" alt="VS IMPOSTOR Pixel Logo" title="VS IMPOSTOR Pixel" style="width: 90%; max-width: 600px;">
-</div>
+## Customization:
 
-## 📖 История
+if you wish to disable things like *Lua Scripts* or *Video Cutscenes*, you can read over to `Project.xml`
 
-После победы над Black (в песне Finale из VS IMPOSTOR v4), он не хочет признавать поражение и использует последний трюк: перезапускает временную линию, стирая все воспоминания и превращая всё в пиксели. Теперь Boyfriend возвращается туда, где началось его путешествие во вселенной Among Us, и должен снова встретиться со всеми импосторами и членами экипажа, а также с новыми персонажами, которые сделают его приключение ещё сложнее!
+inside `Project.xml`, you will find several variables to customize Psych Engine to your liking
 
-## ✨ Особенности
+to start you off, disabling Videos should be simple, simply Delete the line `"VIDEOS_ALLOWED"` or comment it out by wrapping the line in XML-like comments, like this `<!-- YOUR_LINE_HERE -->`
 
-- 🎮 **Полностью новый пиксель-арт стиль** для всех персонажей и локаций
-- 🎵 **Оригинальные треки** от талантливых композиторов
-- 📱 **Поддержка мобильных устройств** (Android/iOS) и десктопных платформ
-- 🌍 **Мультиязычность**: English, Español, Français, Português, Русский, Deutsch, Tiếng Việt
-- 🎯 **Улучшенная система чартов** для более увлекательного геймплея
-- 🔧 **Оптимизированный код** на базе Codename Engine
+same goes for *Lua Scripts*, comment out or delete the line with `LUA_ALLOWED`, this and other customization options are all available within the `Project.xml` file
 
-## 🚀 Установка
+## Credits:
+* Shadow Mario - Programmer
+* Riveren - Artist
 
-### Desktop (Windows/Linux/macOS)
+### Special Thanks
+* bbpanzu - Ex-Programmer
+* Yoshubs - Ex-Programmer
+* SqirraRNG - Crash Handler and Base code for Chart Editor's Waveform
+* KadeDev - Fixed some cool stuff on Chart Editor and other PRs
+* iFlicky - Composer of Psync and Tea Time, also made the Dialogue Sounds
+* PolybiusProxy - .MP4 Video Loader Library (hxCodec)
+* Keoiki - Note Splash Animations
+* Smokey - Sprite Atlas Support
+* Nebula the Zorua - some Lua reworks
+* superpowers04 - LUA JIT Fork
+_____________________________________
 
-1. Скачайте последнюю версию из [GameBanana](https://gamebanana.com/mods/506768) или [Google Drive](https://drive.google.com/drive/folders/1D7bzf95Ig0HuAl6Zrm4iikSvv_Mc0cSm?usp=sharing)
-2. Распакуйте архив в любую папку
-3. Запустите executable-файл (`ImpostorPixel.exe` на Windows)
+# Features
 
-### Mobile (Android/iOS)
+## Attractive animated dialogue boxes:
 
-1. Скачайте APK-файл (Android) или IPA-файл (iOS)
-2. Установите файл на ваше устройство
-   - **Android**: Разрешите установку из неизвестных источников
-   - **iOS**: Используйте AltStore или аналогичный инструмент
-3. Запустите игру
+![](https://user-images.githubusercontent.com/44785097/127706669-71cd5cdb-5c2a-4ecc-871b-98a276ae8070.gif)
 
-### Web (HTML5)
 
-Веб-версия доступна на [GameBanana](https://gamebanana.com/mods/506768) или других хостингах игр.
+## Mod Support
+* Probably one of the main points of this engine, you can code in .lua files outside of the source code, making your own weeks without even messing with the source!
+* Comes with a Mod Organizing/Disabling Menu.
 
-## 🛠️ Сборка из исходников
 
-### Требования
+## Atleast one change to every week:
+### Week 1:
+  * New Dad Left sing sprite
+  * Unused stage lights are now used
+  * Dad Battle has a spotlight effect for the breakdown
+### Week 2:
+  * Both BF and Skid & Pump does "Hey!" animations
+  * Thunders does a quick light flash and zooms the camera in slightly
+  * Added a quick transition/cutscene to Monster
+### Week 3:
+  * BF does "Hey!" during Philly Nice
+  * Blammed has a cool new colors flash during that sick part of the song
+### Week 4:
+  * Better hair physics for Mom/Boyfriend (Maybe even slightly better than Week 7's :eyes:)
+  * Henchmen die during all songs. Yeah :(
+### Week 5:
+  * Bottom Boppers and GF does "Hey!" animations during Cocoa and Eggnog
+  * On Winter Horrorland, GF bops her head slower in some parts of the song.
+### Week 6:
+  * On Thorns, the HUD is hidden during the cutscene
+  * Also there's the Background girls being spooky during the "Hey!" parts of the Instrumental
 
-- [Haxe](https://haxe.org/download/) 4.3+
-- [Lime](https://lime.openfl.org/) 8.1+
-- [OpenFL](https://www.openfl.org/) 9.3+
-- [Flixel](https://flixel.org/) 5.6+
-- [Codename Engine](https://codename-engine.com) зависимости
+## Cool new Chart Editor changes and countless bug fixes
+![](https://github.com/ShadowMario/FNF-PsychEngine/blob/main/docs/img/chart.png?raw=true)
+* You can now chart "Event" notes, which are bookmarks that trigger specific actions that usually were hardcoded on the vanilla version of the game.
+* Your song's BPM can now have decimal values
+* You can manually adjust a Note's strum time if you're really going for milisecond precision
+* You can change a note's type on the Editor, it comes with five example types:
+  * Alt Animation: Forces an alt animation to play, useful for songs like Ugh/Stress
+  * Hey: Forces a "Hey" animation instead of the base Sing animation, if Boyfriend hits this note, Girlfriend will do a "Hey!" too.
+  * Hurt Notes: If Boyfriend hits this note, he plays a miss animation and loses some health.
+  * GF Sing: Rather than the character hitting the note and singing, Girlfriend sings instead.
+  * No Animation: Character just hits the note, no animation plays.
 
-### Установка зависимостей
+## Multiple editors to assist you in making your own Mod
+![Screenshot_3](https://user-images.githubusercontent.com/44785097/144629914-1fe55999-2f18-4cc1-bc70-afe616d74ae5.png)
+* Working both for Source code modding and Downloaded builds!
 
-```bash
-# Установка Haxelib менеджера
-haxelib setup
+## Story mode menu rework:
+![](https://i.imgur.com/UB2EKpV.png)
+* Added a different BG to every song (less Tutorial)
+* All menu characters are now in individual spritesheets, makes modding it easier.
 
-# Установка необходимых библиотек
-haxelib install lime
-haxelib install openfl
-haxelib install flixel
-haxelib install flixel-addons
-haxelib install haxeui-core
-haxelib install haxeui-flixel
-haxelib install hxdiscord_rpc
-haxelib install extension-androidtools
-haxelib install extension-haptics
-haxelib install hxvlc
-```
+## Credits menu
+![Screenshot_1](https://user-images.githubusercontent.com/44785097/144632635-f263fb22-b879-4d6b-96d6-865e9562b907.png)
+* You can add a head icon, name, description and a Redirect link for when the player presses Enter while the item is currently selected.
 
-### Компиляция
+## Awards/Achievements
+* The engine comes with 16 example achievements that you can mess with and learn how it works (Check Achievements.hx and search for "checkForAchievement" on PlayState.hx)
 
-```bash
-# Windows
-lime test windows
+## Options menu:
+* You can change Note colors, Delay and Combo Offset, Controls and Preferences there.
+ * On Preferences you can toggle Downscroll, Middlescroll, Anti-Aliasing, Framerate, Low Quality, Note Splashes, Flashing Lights, etc.
 
-# Linux
-lime test linux
-
-# macOS
-lime test mac
-
-# Android
-lime test android
-
-# HTML5
-lime test html5
-
-# Debug режим
-lime test windows -debug
-```
-
-### Очистка проекта
-
-```bash
-lime clean
-```
-
-## 📁 Структура проекта
-
-```
-VS-IMPOSTOR-Pixel/
-├── source/                 # Исходный код на Haxe
-│   ├── Main.hx            # Точка входа в приложение
-│   └── impostor/          # Основные модули игры
-│       ├── api/           # API интеграции (Discord RPC)
-│       ├── play/          # Игровая логика (PlayState)
-│       ├── sound/         # Звуковая система
-│       ├── system/        # Системные компоненты (Conductor, FunkinGame)
-│       └── ui/            # Пользовательский интерфейс
-├── assets/                # Игровые ресурсы (музыка, изображения)
-│   └── music/             # Музыкальные треки
-├── .artwork/              # Арт-ресурсы и иконки приложения
-│   ├── github/            # Изображения для GitHub
-│   └── icons/             # Иконки для различных платформ
-├── .vscode/               # Настройки VS Code для разработки
-├── project.hxp            # Конфигурация проекта Lime/OpenFL
-├── hxformat.json          # Настройки форматирования кода Haxe
-├── CHANGELOG.md           # История изменений версий
-├── LICENSE                # Лицензионное соглашение
-├── README.md              # Этот файл
-└── CONTRIBUTING.md        # Руководство по внесению вклада
-```
-
-## 👥 Команда проекта
-
-### Директор и Программист
-- **[kenton](https://github.com/kenton54)**
-
-### Художники, Пиксель-артисты и Аниматоры
-- **[kenton](https://github.com/kenton54)**
-- **GTM**
-
-### Композиторы
-| Композитор | Количество треков |
-|------------|-------------------|
-| [Sparkly](https://www.youtube.com/@SparklyYea) | 4 |
-| [Silte](https://www.youtube.com/@SilteTheMusician) | 1 |
-
-### Чартеры
-| Чартер | Количество чартов |
-|--------|-------------------|
-| [kenton](https://github.com/kenton54) | 17 |
-| Kdead | 4 |
-
-### Переводчики
-| Переводчик | Язык |
-|------------|------|
-| [kenton](https://github.com/kenton54) | Español |
-| Moxt | Français |
-| mikeyguy | Português |
-| Fred | Русский |
-| Video Fanmade Guy | Deutsch |
-| Huy1234TH | Tiếng Việt |
-
-## 📝 Условия использования
-
-✅ **Разрешено:**
-- Использовать арт, анимации и код (с указанием авторства)
-- Создавать стримы и видео с использованием мода
-- Использовать в некоммерческих проектах
-
-❌ **Запрещено:**
-- Выдавать работу за свою
-- Использовать музыку без разрешения оригинальных авторов
-- Коммерческое использование без согласования
-
-> **Важно:** Всегда указывайте оригинальных авторов при использовании материалов мода. Для использования музыкальных треков обращайтесь напрямую к композиторам.
-
-## 🐛 Сообщение об ошибках
-
-Нашли баг или есть предложение по улучшению? Создайте [issue](https://github.com/kenton54/VS-IMPOSTOR-Pixel/issues) в этом репозитории.
-
-Перед созданием issue:
-- Проверьте существующие запросы
-- Укажите платформу и версию игры
-- Приложите скриншоты или логи (если применимо)
-
-## 🔗 Полезные ссылки
-
-- [GameBanana](https://gamebanana.com/mods/506768) — Страница мода на GameBanana
-- [Google Drive](https://drive.google.com/drive/folders/1D7bzf95Ig0HuAl6Zrm4iikSvv_Mc0cSm?usp=sharing) — Скачать мод
-- [VS IMPOSTOR](https://vsimpostor.com) — Оригинальный мод
-- [Codename Engine](https://codename-engine.com) — Движок игры
-- [Friday Night Funkin'](https://ninja-muffin24.itch.io/funkin) — Оригинальная игра
-
-## 📄 Лицензия
-
-Этот проект распространяется под лицензией MIT. Подробнее см. файл [LICENSE](LICENSE).
-
-## 🙏 Благодарности
-
-- **Innersloth** — за создание Among Us
-- **Ninja Muffin24** и команда FNF — за Friday Night Funkin'
-- **Команда IMPOSTORM** — за оригинальный мод VS IMPOSTOR
-- **Сообществу FNF** — за поддержку и вдохновение
-
----
-
-<div align="center">
-
-**Сделано с ❤️ командой VS IMPOSTOR Pixel**
-
-[⬆️ Вернуться к началу](#friday-night-funkin---vs-impostor-pixel)
-
-</div>
+## Other gameplay features:
+* When the enemy hits a note, their strum note also glows.
+* Lag doesn't impact the camera movement and player icon scaling anymore.
+* Some stuff based on Week 7's changes has been put in (Background colors on Freeplay, Note splashes)
+* You can reset your Score on Freeplay/Story Mode by pressing Reset button.
+* You can listen to a song or adjust Scroll Speed/Damage taken/etc. on Freeplay by pressing Space.
+* You can enable "Combo Stacking" in Gameplay Options. This causes the combo sprites to just be one sprite with an animation rather than sprites spawning each note hit.

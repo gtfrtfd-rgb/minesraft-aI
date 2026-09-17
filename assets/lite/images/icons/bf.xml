@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<TextureAtlas imagePath="BF_Icon.png">
+<SubTexture name="normal0000" x="0" y="0" width="150" height="150" frameX="0" frameY="0" frameWidth="150" frameHeight="150" />
+<SubTexture name="normal0001" x="150" y="0" width="150" height="150" frameX="0" frameY="0" frameWidth="150" frameHeight="150" />
+<SubTexture name="lose0000" x="0" y="150" width="150" height="150" frameX="0" frameY="0" frameWidth="150" frameHeight="150" />
+<SubTexture name="lose0001" x="150" y="150" width="150" height="150" frameX="0" frameY="0" frameWidth="150" frameHeight="150" />
+<SubTexture name="win0000" x="300" y="0" width="150" height="150" frameX="0" frameY="0" frameWidth="150" frameHeight="150" />
+<SubTexture name="win0001" x="300" y="150" width="150" height="150" frameX="0" frameY="0" frameWidth="150" frameHeight="150" />
+</TextureAtlas>

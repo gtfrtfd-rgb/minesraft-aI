@@ -1,0 +1,100 @@
+{
+	"animations": [
+		{
+			"offsets": [
+				190,
+				184
+			],
+			"loop": false,
+			"fps": 13,
+			"anim": "idle",
+			"indices": [
+				6,
+				5,
+				4,
+				3,
+				2,
+				1,
+				0
+			],
+			"name": "Idle_bitchlitered"
+		},
+		{
+			"offsets": [
+				190,
+				184
+			],
+			"indices": [
+				1,
+				0
+			],
+			"fps": 12,
+			"anim": "singLEFT",
+			"loop": false,
+			"name": "Left_bitchlitered"
+		},
+		{
+			"offsets": [
+				190,
+				184
+			],
+			"indices": [
+				1,
+				0
+			],
+			"fps": 12,
+			"anim": "singDOWN",
+			"loop": false,
+			"name": "Down_bitchlitered"
+		},
+		{
+			"offsets": [
+				190,
+				184
+			],
+			"indices": [
+				1,
+				0
+			],
+			"fps": 12,
+			"anim": "singUP",
+			"loop": false,
+			"name": "Up_bitchlitered"
+		},
+		{
+			"offsets": [
+				190,
+				184
+			],
+			"indices": [
+				1,
+				0
+			],
+			"fps": 12,
+			"anim": "singRIGHT",
+			"loop": false,
+			"name": "Right_bitchlitered"
+		}
+	],
+	"vocals_file": "",
+	"no_antialiasing": true,
+	"image": "characters/Awshit_litered",
+	"position": [
+		0,
+		280
+	],
+	"healthicon": "redImpScared",
+	"flip_x": false,
+	"healthbar_colors": [
+		247,
+		149,
+		149
+	],
+	"camera_position": [
+		-600,
+		-230
+	],
+	"sing_duration": 4,
+	"scale": 1.25,
+	"_editor_isPlayer": false
+}

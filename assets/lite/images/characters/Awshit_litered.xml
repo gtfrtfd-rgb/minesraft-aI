@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextureAtlas imagePath="Awshit_litered.png">
+	<!-- Created using the Spritesheet and XML generator -->
+	<!-- https://uncertainprod.github.io/FNF-Spritesheet-XML-generator-Web -->
+	<SubTexture name="Idle_bitchlitered0000" x="606" y="833" width="599" height="422" frameX="-74" frameY="-297" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Idle_bitchlitered0001" x="606" y="833" width="599" height="422" frameX="-74" frameY="-297" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Idle_bitchlitered0002" x="0" y="833" width="606" height="423" frameX="-74" frameY="-296" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Idle_bitchlitered0003" x="618" y="415" width="611" height="418" frameX="-74" frameY="-301" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Idle_bitchlitered0004" x="0" y="415" width="618" height="418" frameX="-74" frameY="-301" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Idle_bitchlitered0005" x="637" y="0" width="637" height="415" frameX="-74" frameY="-304" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Idle_bitchlitered0006" x="0" y="0" width="637" height="415" frameX="-74" frameY="-304" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Right_bitchlitered0000" x="581" y="1256" width="577" height="407" frameX="-74" frameY="-312" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Right_bitchlitered0001" x="0" y="1256" width="581" height="407" frameX="-74" frameY="-312" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Up_bitchlitered0000" x="1274" y="0" width="565" height="424" frameX="-74" frameY="-295" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Up_bitchlitered0001" x="1274" y="424" width="565" height="422" frameX="-74" frameY="-297" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Down_bitchlitered0000" x="1158" y="1256" width="575" height="384" frameX="-74" frameY="-335" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Down_bitchlitered0001" x="1839" y="0" width="574" height="384" frameX="-74" frameY="-335" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Left_bitchlitered0000" x="1839" y="802" width="511" height="421" frameX="-74" frameY="-298" frameWidth="1280" frameHeight="720"/>
+	<SubTexture name="Left_bitchlitered0001" x="1839" y="384" width="516" height="418" frameX="-74" frameY="-301" frameWidth="1280" frameHeight="720"/>
+</TextureAtlas>

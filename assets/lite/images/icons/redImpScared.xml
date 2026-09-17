@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextureAtlas imagePath="redImpScared.png">
+	<!-- Created using the Spritesheet and XML generator -->
+	<!-- https://uncertainprod.github.io/FNF-Spritesheet-XML-generator-Web -->
+	<SubTexture name="normal0000" x="244" y="111" width="107" height="101" frameX="-18" frameY="-41" frameWidth="150" frameHeight="150"/>
+	<SubTexture name="normal0001" x="124" y="112" width="108" height="98" frameX="-17" frameY="-44" frameWidth="150" frameHeight="150"/>
+	<SubTexture name="win0000" x="0" y="112" width="124" height="105" frameX="-12" frameY="-39" frameWidth="150" frameHeight="150"/>
+	<SubTexture name="win0001" x="118" y="0" width="126" height="104" frameX="-11" frameY="-39" frameWidth="150" frameHeight="150"/>
+	<SubTexture name="lose0000" x="244" y="0" width="113" height="111" frameX="-12" frameY="-32" frameWidth="150" frameHeight="150"/>
+	<SubTexture name="lose0001" x="0" y="0" width="118" height="112" frameX="-10" frameY="-32" frameWidth="150" frameHeight="150"/>
+</TextureAtlas>

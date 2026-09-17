@@ -1,0 +1,15 @@
+{
+	"songs": [
+		["sussus moongus", "redImp", [247, 149, 149]],
+		["sabotage", "redImp", [247, 149, 149]],
+		["meltdown", "redImpScared", [247, 149, 149]]
+	],
+
+	"storyName": "",
+	"weekBefore": "",
+	"weekName": "",
+	"startUnlocked": true,
+
+	"hideStoryMode": false,
+	"hideFreeplay": false
+}
