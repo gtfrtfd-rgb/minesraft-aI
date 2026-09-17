@@ -107,7 +107,7 @@ class FunkinSound extends FlxSound
 	 * @param looped Whether the music should loop
 	 * @return This FunkinSound instance
 	 */
-	override public function loadStreamed(musicAsset:String, looped:Bool = true):FunkinSound
+	public function loadStreamed(musicAsset:String, looped:Bool = true):FunkinSound
 	{
 		if (musicAsset == null) return this;
 
