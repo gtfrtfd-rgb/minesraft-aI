@@ -759,7 +759,7 @@ class FlxInputText extends FlxText
 					caret.pixels.fillRect(r, caretC); // draw caret
 					caret.offset.x = caret.offset.y = 0;
 
-				case OUTLINE_FAST, OUTLINE:
+				case OUTLINE_FAST, OUTLINE, OUTLINE_CARDINAL, SHADOW_XY:
 					// Border all around it
 					cw += Std.int(borderSize * 2);
 					ch += Std.int(borderSize * 2); // expand canvas on both sides

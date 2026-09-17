@@ -52,8 +52,7 @@ class CallbackHandler
 		}
 		catch(e:Dynamic)
 		{
-			if(Reflect.hasField(Lua_helper, "sendErrorsToLua") && Lua_helper.sendErrorsToLua) {llua.LuaL.error(l, 'CALLBACK ERROR! ${if(e.message != null) e.message else e}');return 0;}
-			trace(e);
+			trace('CALLBACK ERROR! ${if(e.message != null) e.message else e}');
 			throw(e);
 		}
 		return 0;
