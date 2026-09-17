@@ -118,7 +118,11 @@ class FunkinSound extends FlxSound
 			_sound = Assets.getMusic(musicAsset);
 		}
 
-		return cast init(looped, false, null);
+		// Call parent loadStreamed with just the assetId, then set looped property
+		super.loadStreamed(musicAsset);
+		this.looped = looped;
+
+		return cast this;
 	}
 }
 
