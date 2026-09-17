@@ -1,1 +1,5 @@
-/target
+.idea/
+.haxelib/
+export/
+RECOVER.*.fla
+.DS_Store
