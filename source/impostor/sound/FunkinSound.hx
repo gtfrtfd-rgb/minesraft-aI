@@ -12,11 +12,11 @@ class FunkinSound extends FlxSound
 {
 	/**
 	 * Plays a music track with optional volume and BPM parameters.
-	 * @param musicAsset The music asset to play
+	 * @param musicAsset The music asset to play (String path)
 	 * @param volume Volume level (0.0 to 1.0, default: 1.0)
 	 * @param params Optional music parameters including BPM
 	 */
-	public static function playMusic(musicAsset:FlxSoundAsset, ?volume:Float = 1.0, ?params:MusicParams):Void
+	public static function playMusic(musicAsset:String, ?volume:Float = 1.0, ?params:MusicParams):Void
 	{
 		if (musicAsset == null) return;
 
@@ -34,7 +34,7 @@ class FunkinSound extends FlxSound
 
 		if (params != null)
 		{
-			Conductor.start(params.bpm, false, params.beatsPerMeasure ?? 4, params.stepsPerBeat ?? 4);
+			Conductor.start(params.bpm, false, params.beatsPerMeasure != null ? params.beatsPerMeasure : 4, params.stepsPerBeat != null ? params.stepsPerBeat : 4);
 		}
 	}
 
@@ -81,28 +81,21 @@ class FunkinSound extends FlxSound
 
 	/**
 	 * Loads a sound effect asset.
-	 * @param soundAsset The sound asset to load
+	 * @param soundAsset The sound asset to load (String path)
 	 * @param looped Whether the sound should loop
 	 * @param autoDestroy Whether to automatically destroy after playback
 	 * @param onComplete Callback when sound finishes playing
 	 * @return This FunkinSound instance
 	 */
-	public function loadSound(soundAsset:FlxSoundAsset, looped:Bool = false, autoDestroy:Bool = true, ?onComplete:Void->Void):FunkinSound
+	public function loadSound(soundAsset:String, looped:Bool = false, autoDestroy:Bool = true, ?onComplete:Void->Void):FunkinSound
 	{
 		if (soundAsset == null) return this;
 
 		cleanup(true);
 
-		if (Std.isOfType(soundAsset, Sound))
+		if (Assets.exists(soundAsset, SOUND))
 		{
-			_sound = cast soundAsset;
-		}
-		else if (Std.isOfType(soundAsset, String))
-		{
-			if (Assets.exists(soundAsset, SOUND))
-			{
-				_sound = Assets.getMusic(soundAsset);
-			}
+			_sound = Assets.getMusic(soundAsset);
 		}
 
 		return cast init(looped, autoDestroy, onComplete);
@@ -110,31 +103,22 @@ class FunkinSound extends FlxSound
 
 	/**
 	 * Loads a streamed music asset.
-	 * @param musicAsset The music asset to load
+	 * @param musicAsset The music asset to load (String path)
 	 * @param looped Whether the music should loop
-	 * @param autoDestroy Whether to automatically destroy after playback
-	 * @param onComplete Callback when music finishes playing
 	 * @return This FunkinSound instance
 	 */
-	public function loadStreamed(musicAsset:FlxSoundAsset, looped:Bool = true, autoDestroy:Bool = false, ?onComplete:Void->Void):FunkinSound
+	override public function loadStreamed(musicAsset:String, looped:Bool = true):FunkinSound
 	{
 		if (musicAsset == null) return this;
 
 		cleanup(true);
 
-		if (Std.isOfType(musicAsset, Sound))
+		if (Assets.exists(musicAsset, MUSIC))
 		{
-			_sound = cast musicAsset;
-		}
-		else if (Std.isOfType(musicAsset, String))
-		{
-			if (Assets.exists(musicAsset, MUSIC))
-			{
-				_sound = Assets.getMusic(musicAsset);
-			}
+			_sound = Assets.getMusic(musicAsset);
 		}
 
-		return cast init(looped, autoDestroy, onComplete);
+		return cast init(looped, false, null);
 	}
 }
 

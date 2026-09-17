@@ -142,7 +142,8 @@ final class Conductor
 	 */
 	public static function start(bpm:Float = 100.0, standalone:Bool = false, beatsPerMeasure:Int = 4, stepsPerBeat:Int = 4):Void
 	{
-		conductorElapsed = songPosition = curMeasureFloat = curBeatFloat = curStepFloat = curBPMChangeIndex = 0.0;
+		conductorElapsed = songPosition = curMeasureFloat = curBeatFloat = curStepFloat = 0.0;
+		curBPMChangeIndex = 0;
 		curMeasure = curBeat = curStep = -1;
 		resume();
 
@@ -161,7 +162,8 @@ final class Conductor
 	 */
 	public static function reset():Void
 	{
-		conductorElapsed = songPosition = curMeasureFloat = curBeatFloat = curStepFloat = curBPMChangeIndex = 0.0;
+		conductorElapsed = songPosition = curMeasureFloat = curBeatFloat = curStepFloat = 0.0;
+		curBPMChangeIndex = 0;
 		curMeasure = curBeat = curStep = -1;
 		pause();
 

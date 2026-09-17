@@ -26,7 +26,7 @@ class DiscordClient
 		handlers.disconnected = cpp.Function.fromStaticFunction(onDisconnect);
 		handlers.errored = cpp.Function.fromStaticFunction(onError);
 
-		Discord.initialize(clientID, cpp.RawPointer.addressOf(handlers), true, null);
+		Discord.Initialize(clientID, cpp.RawPointer.addressOf(handlers), true, null);
 
 		Thread.create(discordRPCUpdate);
 		#end
@@ -41,10 +41,10 @@ class DiscordClient
 		while (true)
 		{
 			#if DISCORD_DISABLE_IO_THREAD
-			Discord.updateConnection();
+			Discord.UpdateConnection();
 			#end
 
-			Discord.runCallbacks();
+			Discord.RunCallbacks();
 
 			Sys.sleep(2.0);
 		}
@@ -91,22 +91,22 @@ class DiscordClient
 
 		presence.type = DiscordActivityType.DiscordActivityType_Playing;
 
-		presence.state = cast(params.state, Null<String>) ?? "";
-		presence.details = cast(params.details, Null<String>) ?? "";
+		presence.state = (params.state != null) ? params.state : "";
+		presence.details = (params.details != null) ? params.details : "";
 
 		// The big image representing the game that appears on the RPC.
 		// The text that appears when you hover over the RPC image.
 		presence.largeImageText = "VS IMPOSTOR Pixel";
 		// The key name of the image inside the RPC assets.
-		presence.largeImageKey = cast(params.largeImageKey, Null<String>) ?? "mainhd";
+		presence.largeImageKey = (params.largeImageKey != null) ? params.largeImageKey : "mainhd";
 
 		// A small icon that appears at the bottom right of the image of the RPC.
 		// The text that appears when you hover over the RPC image.
-		presence.smallImageText = cast(params.smallImageText, Null<String>) ?? "";
+		presence.smallImageText = (params.smallImageText != null) ? params.smallImageText : "";
 		// The key name of the image inside the RPC assets.
-		presence.smallImageKey = cast(params.smallImageKey, Null<String>) ?? "";
+		presence.smallImageKey = (params.smallImageKey != null) ? params.smallImageKey : "";
 
-		Discord.updatePresence(cpp.RawConstPointer.addressOf(presence));
+		Discord.UpdatePresence(cpp.RawConstPointer.addressOf(presence));
 		#end
 	}
 
@@ -116,7 +116,7 @@ class DiscordClient
 	public static function clearPresence():Void
 	{
 		#if DISCORD_API
-		Discord.clearPresence();
+		Discord.ClearPresence();
 		#end
 	}
 
@@ -127,7 +127,7 @@ class DiscordClient
 	public static function shutdown():Void
 	{
 		#if DISCORD_API
-		Discord.shutdown();
+		Discord.Shutdown();
 		#end
 	}
 }
