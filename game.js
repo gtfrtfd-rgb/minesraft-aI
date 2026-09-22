@@ -45,7 +45,7 @@ const generateWorld = MC.generateWorld;
 const buildChunk = MC.buildChunk, buildAllChunks = MC.buildAllChunks;
 const rebuildAround = MC.rebuildAround, rebuildAll = MC.rebuildAll;
 
-const GAME_VERSION = 'V2.0.1';
+const GAME_VERSION = 'V2.0.2';
 
 /* ---------- безопасная обёртка SFX ---------- */
 const SFX = (function () {
@@ -509,8 +509,6 @@ let mouseDown = [false, false, false];
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (!locked || dead) return;
   mouseDown[e.button] = true;
-  // атака мобов обрабатывается в update() (с кулдауном),
-  // но сбрасываем прогресс ломания, чтобы не путать состояния
   if (e.button === 0) {
     breaking.active = false;
     breaking.progress = 0;
@@ -565,7 +563,6 @@ function stopBreaking() {
   crackMesh.visible = false;
 }
 
-/* попытка ударить моба в прицеле */
 function tryAttackMob() {
   if (attackTimer > 0) return false;
   _hitDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -1020,7 +1017,6 @@ function update(dt) {
   /* ---- атака мобов по удержанию ЛКМ ---- */
   if (locked && mouseDown[0] && !dead) {
     if (tryAttackMob()) {
-      // атака прошла — прерываем ломание, чтобы не смешивать действия
       if (breaking.active) stopBreaking();
     }
   }
