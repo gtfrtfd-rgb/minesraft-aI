@@ -1,4 +1,10 @@
-# ... (строки name: и on: остаются прежними)
+name: Node.js CI (Windows)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
   build:
@@ -7,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18.x, 20.x, 22.x] # Проверьте, чтобы тут было написано именно node-version через дефис
+        node-version: [18.x, 20.x, 22.x]
 
     steps:
       - uses: actions/checkout@v4
@@ -15,7 +21,7 @@ jobs:
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }} # Здесь имя должно строго совпадать с матрицей выше
+          node-version: ${{ matrix.node-version }}
 
       - name: Install dependencies
         run: npm install
