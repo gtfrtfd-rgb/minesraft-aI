@@ -4,7 +4,8 @@
      window.SFX = {
        resume, break, place, step, jump, select,
        flyOn, flyOff, hurt, death,
-       pig, sheep, cow, chicken
+       pig, sheep, cow, chicken,
+       mobHurt, mobDeath
      }
    ============================================================ */
 window.SFX = (function () {
@@ -254,11 +255,7 @@ function sndDeath() {
   playNoise({ duration: 0.10, decay: 5, filterType: 'highpass', freq: 3200, gain: 0.08 });
 }
 
-/* ============================================================
-   ЗВУКИ МОБОВ
-   ============================================================ */
-
-/* Свинья: два коротких низких «хрюк» с шумовым призвуком */
+/* ---------- обычные звуки мобов ---------- */
 function sndPig() {
   const p = 0.9 + Math.random() * 0.2;
   playTone({ type: 'sawtooth', f0: 220 * p, f1: 150 * p, duration: 0.12, gain: 0.10 });
@@ -266,7 +263,6 @@ function sndPig() {
   playNoise({ duration: 0.18, decay: 3, filterType: 'bandpass', freq: 550, Q: 1.4, gain: 0.06 });
 }
 
-/* Овца: длинное «бэ-э-э» с вибрато (LFO на частоте ~16 Гц) */
 function sndSheep() {
   const c = getCtx(); if (!c) return;
   const p = 0.9 + Math.random() * 0.15;
@@ -304,7 +300,6 @@ function sndSheep() {
   lfo.stop(t0 + dur + 0.05);
 }
 
-/* Корова: длинное низкое «му-у» с медленным вибрато */
 function sndCow() {
   const c = getCtx(); if (!c) return;
   const p = 0.9 + Math.random() * 0.15;
@@ -340,12 +335,62 @@ function sndCow() {
   lfo.stop(t0 + dur + 0.05);
 }
 
-/* Курица: два коротких «кло-кло», высокие, отрывистые */
 function sndChicken() {
   const p = 0.95 + Math.random() * 0.15;
   playTone({ type: 'square', f0: 1000 * p, f1: 600 * p, duration: 0.05, gain: 0.07 });
   playTone({ type: 'square', f0: 1200 * p, f1: 700 * p, duration: 0.06, gain: 0.06, when: 0.13 });
   playNoise({ duration: 0.03, decay: 6, filterType: 'highpass', freq: 3000, gain: 0.03 });
+}
+
+/* ---------- звуки боли мобов (короткие, с искажением) ---------- */
+function sndMobHurt(type) {
+  const p = 0.9 + Math.random() * 0.2;
+  if (type === 'pig') {
+    playTone({ type: 'sawtooth', f0: 200 * p, f1: 110 * p, duration: 0.14, gain: 0.13 });
+    playNoise({ duration: 0.10, decay: 4, filterType: 'bandpass', freq: 700, Q: 1.4, gain: 0.06 });
+    return;
+  }
+  if (type === 'sheep') {
+    playTone({ type: 'sawtooth', f0: 380 * p, f1: 500 * p, duration: 0.16, gain: 0.11 });
+    playNoise({ duration: 0.06, decay: 5, filterType: 'highpass', freq: 1800, gain: 0.04 });
+    return;
+  }
+  if (type === 'cow') {
+    playTone({ type: 'sawtooth', f0: 150 * p, f1: 95 * p, duration: 0.22, gain: 0.13 });
+    playNoise({ duration: 0.08, decay: 4, filterType: 'lowpass', freq: 900, gain: 0.05 });
+    return;
+  }
+  if (type === 'chicken') {
+    playTone({ type: 'square', f0: 1400 * p, f1: 850 * p, duration: 0.09, gain: 0.09 });
+    playTone({ type: 'square', f0: 1200 * p, f1: 780 * p, duration: 0.07, gain: 0.06, when: 0.08 });
+    playNoise({ duration: 0.04, decay: 5, filterType: 'highpass', freq: 2800, gain: 0.035 });
+    return;
+  }
+}
+
+/* ---------- звуки смерти мобов (ниже, длиннее, мрачнее) ---------- */
+function sndMobDeath(type) {
+  const p = 0.9 + Math.random() * 0.15;
+  if (type === 'pig') {
+    playTone({ type: 'sawtooth', f0: 200 * p, f1: 65, duration: 0.55, gain: 0.14 });
+    playNoise({ duration: 0.5, decay: 2.0, filterType: 'bandpass', freq: 500, freqEnd: 180, Q: 1.2, gain: 0.08 });
+    return;
+  }
+  if (type === 'sheep') {
+    playTone({ type: 'sawtooth', f0: 400 * p, f1: 140, duration: 0.65, gain: 0.13 });
+    playNoise({ duration: 0.6, decay: 1.8, filterType: 'bandpass', freq: 1400, freqEnd: 350, Q: 1.2, gain: 0.07 });
+    return;
+  }
+  if (type === 'cow') {
+    playTone({ type: 'sawtooth', f0: 150 * p, f1: 55, duration: 0.85, gain: 0.14 });
+    playNoise({ duration: 0.8, decay: 1.5, filterType: 'lowpass', freq: 800, freqEnd: 200, gain: 0.10 });
+    return;
+  }
+  if (type === 'chicken') {
+    playTone({ type: 'square', f0: 1300 * p, f1: 350, duration: 0.35, gain: 0.10 });
+    playNoise({ duration: 0.3, decay: 2.2, filterType: 'highpass', freq: 2400, gain: 0.05 });
+    return;
+  }
 }
 
 return {
@@ -362,7 +407,9 @@ return {
   pig:    sndPig,
   sheep:  sndSheep,
   cow:    sndCow,
-  chicken: sndChicken
+  chicken: sndChicken,
+  mobHurt: sndMobHurt,
+  mobDeath: sndMobDeath
 };
 
 })();

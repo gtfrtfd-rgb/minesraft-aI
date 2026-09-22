@@ -1,18 +1,25 @@
 /* ============================================================
-   mobs.js — мирные мобы со своими текстурами и звуками.
+   mobs.js — мирные мобы со своими текстурами, звуками, HP и AI.
 
    AI:
-     - прыжок через блок высотой 1 при столкновении
+     - прыжок через блок высотой 1
      - после прыжка вертикальный шаг кадра пропускается
      - горизонтальная скорость сохраняется в прыжке
+     - паника при уроне (убегает от игрока 4 секунды, x1.6 скорость)
+     - изредка «смотрит» на игрока, когда стоит рядом
      - детектор застревания
      - случайные звуки каждые 8–16 секунд, если игрок рядом
+
+   HP:
+     - pig 10, sheep 8, cow 10, chicken 4
+     - при уроне — мигание и отбрасывание
+     - при смерти — звук и удаление
 
    Публичный объект: window.MOBS = {
      init(scene), update(dt, playerPos),
      spawnInitial(count), spawnAt(type, x, y, z),
      clear(), serialize(), deserialize(arr),
-     count()
+     count(), raycast(origin, dir, maxDist), hit(mob, dmg, fromX, fromZ)
    }
    ============================================================ */
 window.MOBS = (function () {
@@ -25,7 +32,8 @@ if (!window.MC) {
     init: noop, update: noop,
     spawnInitial: noop, spawnAt: noop,
     clear: noop, serialize: function () { return []; },
-    deserialize: noop, count: function () { return 0; }
+    deserialize: noop, count: function () { return 0; },
+    raycast: function () { return null; }, hit: function () { return false; }
   };
 }
 
@@ -45,6 +53,8 @@ const JUMP_VELOCITY = 8.6;
 const SOUND_MIN_DIST2 = 15 * 15;
 const SOUND_INTERVAL_MIN = 8;
 const SOUND_INTERVAL_MAX = 16;
+const PANIC_DURATION = 4.0;
+const PANIC_SPEED_MULT = 1.6;
 
 /* ============================================================
    ПРОЦЕДУРНЫЕ ТЕКСТУРЫ МОБОВ (16×16, пиксельные)
@@ -205,28 +215,18 @@ function makeBox(w, h, d, color, texKey) {
 
 /* ============================================================
    ОПРЕДЕЛЕНИЯ МОБОВ
-
-   ВАЖНО: у каждой головы задняя грань заходит внутрь тела
-   (на 0.10–0.15 блока). Зазора между головой и телом нет —
-   всё читается как единое целое.
-
    Части: [w, h, d, color, x, y, z, isLeg, texKey]
    ============================================================ */
 const MOB_TYPES = {
 
   pig: {
-    h: 0.95, r: 0.35, speed: 1.4,
+    h: 0.95, r: 0.35, speed: 1.4, hp: 10,
     parts: [
-      // тело: z от -0.25 до +0.25
       [0.9,  0.55, 0.5,  0xEE9999,  0,    0.55,  0,     false, 'pigBody'],
-      // голова: центр -0.30, глубина 0.4 → z от -0.50 до -0.10 (входит в тело)
       [0.45, 0.45, 0.4,  0xEE9999,  0,    0.75, -0.30,  false, 'pigHead'],
-      // пятачок: чуть впереди передней грани головы (-0.50)
       [0.22, 0.14, 0.08, 0xCC6677,  0,    0.66, -0.53,  false, 'pigSnout'],
-      // глаза: чуть впереди передней грани
       [0.07, 0.07, 0.04, 0x111111, -0.13, 0.86, -0.51,  false, null],
       [0.07, 0.07, 0.04, 0x111111,  0.13, 0.86, -0.51,  false, null],
-      // ноги
       [0.15, 0.5,  0.15, 0xCC6677, -0.30, 0.25, -0.15,  true,  'pigLeg'],
       [0.15, 0.5,  0.15, 0xCC6677,  0.30, 0.25, -0.15,  true,  'pigLeg'],
       [0.15, 0.5,  0.15, 0xCC6677, -0.30, 0.25,  0.15,  true,  'pigLeg'],
@@ -235,16 +235,12 @@ const MOB_TYPES = {
   },
 
   sheep: {
-    h: 1.0, r: 0.35, speed: 1.2,
+    h: 1.0, r: 0.35, speed: 1.2, hp: 8,
     parts: [
-      // тело: z от -0.30 до +0.30
       [0.9,  0.7,  0.6,  0xEEEEEE,  0,    0.60,  0,     false, 'sheepWool'],
-      // голова: центр -0.35, глубина 0.4 → z от -0.55 до -0.15 (входит в тело)
       [0.4,  0.4,  0.4,  0x444444,  0,    0.80, -0.35,  false, 'sheepFace'],
-      // глаза
       [0.09, 0.09, 0.04, 0xFFFFFF, -0.10, 0.90, -0.56,  false, null],
       [0.09, 0.09, 0.04, 0xFFFFFF,  0.10, 0.90, -0.56,  false, null],
-      // ноги
       [0.13, 0.5,  0.13, 0x333333, -0.30, 0.25, -0.20,  true,  'sheepLeg'],
       [0.13, 0.5,  0.13, 0x333333,  0.30, 0.25, -0.20,  true,  'sheepLeg'],
       [0.13, 0.5,  0.13, 0x333333, -0.30, 0.25,  0.20,  true,  'sheepLeg'],
@@ -253,19 +249,14 @@ const MOB_TYPES = {
   },
 
   cow: {
-    h: 1.2, r: 0.42, speed: 1.2,
+    h: 1.2, r: 0.42, speed: 1.2, hp: 10,
     parts: [
-      // тело: z от -0.325 до +0.325
       [1.1,  0.7,  0.65, 0x664422,  0,    0.65,  0,     false, 'cowHide'],
-      // голова: центр -0.40, глубина 0.5 → z от -0.65 до -0.15 (входит в тело)
       [0.5,  0.5,  0.5,  0x664422,  0,    0.85, -0.40,  false, 'cowFace'],
-      // глаза
       [0.08, 0.08, 0.05, 0x000000, -0.15, 0.95, -0.66,  false, null],
       [0.08, 0.08, 0.05, 0x000000,  0.15, 0.95, -0.66,  false, null],
-      // рога — сидят прямо на верхней грани головы
       [0.08, 0.16, 0.08, 0xF0F0D0, -0.20, 1.18, -0.40,  false, 'cowHorn'],
       [0.08, 0.16, 0.08, 0xF0F0D0,  0.20, 1.18, -0.40,  false, 'cowHorn'],
-      // ноги
       [0.15, 0.55, 0.15, 0x442211, -0.35, 0.275, -0.20, true,  'cowLeg'],
       [0.15, 0.55, 0.15, 0x442211,  0.35, 0.275, -0.20, true,  'cowLeg'],
       [0.15, 0.55, 0.15, 0x442211, -0.35, 0.275,  0.20, true,  'cowLeg'],
@@ -274,18 +265,13 @@ const MOB_TYPES = {
   },
 
   chicken: {
-    h: 0.6, r: 0.20, speed: 2.0,
+    h: 0.6, r: 0.20, speed: 2.0, hp: 4,
     parts: [
-      // тело: z от -0.20 до +0.20
       [0.40, 0.40, 0.40, 0xFFFFFF,  0,    0.35,  0,     false, 'chickenBody'],
-      // голова: центр -0.22, глубина 0.28 → z от -0.36 до -0.08 (входит в тело)
       [0.28, 0.28, 0.28, 0xFFFFFF,  0,    0.62, -0.22,  false, 'chickenBody'],
-      // клюв — впереди передней грани головы (-0.36)
       [0.10, 0.08, 0.14, 0xE8A020,  0,    0.56, -0.42,  false, 'chickenBeak'],
-      // глаза
       [0.06, 0.06, 0.04, 0x000000, -0.08, 0.68, -0.37,  false, null],
       [0.06, 0.06, 0.04, 0x000000,  0.08, 0.68, -0.37,  false, null],
-      // ноги
       [0.10, 0.18, 0.10, 0xE8A020, -0.10, 0.09,  0.05,  true,  'chickenLeg'],
       [0.10, 0.18, 0.10, 0xE8A020,  0.10, 0.09,  0.05,  true,  'chickenLeg']
     ]
@@ -338,7 +324,14 @@ function createMob(type, x, y, z, yaw) {
     stuckTimer: 0,
     avoidCooldown: 0,
     jumpCooldown: 0,
-    soundTimer: 2 + Math.random() * 6
+    soundTimer: 2 + Math.random() * 6,
+    // --- HP и состояния ---
+    hp: def.hp,
+    maxHp: def.hp,
+    dead: false,
+    hurtTimer: 0,
+    panicTimer: 0,
+    lookAtCooldown: 1 + Math.random() * 3
   };
   mobs.push(mob);
   return mob;
@@ -438,6 +431,7 @@ function reactToWall(mob) {
 function maybePlaySound(mob) {
   if (!playerPos) return;
   if (!window.SFX) return;
+  if (mob.panicTimer > 0) return;   // в панике звук — только от боли
 
   const dx = mob.pos.x - playerPos.x;
   const dy = mob.pos.y - playerPos.y;
@@ -454,52 +448,202 @@ function maybePlaySound(mob) {
 }
 
 /* ============================================================
+   НАНЕСЕНИЕ УРОНА (публичный API)
+   Возвращает true, если моб умер.
+   ============================================================ */
+function hitMob(mob, damage, fromX, fromZ) {
+  if (!mob || mob.dead) return false;
+  mob.hp -= damage;
+  mob.hurtTimer = 0.3;
+  mob.panicTimer = PANIC_DURATION;
+  mob.walking = true;
+
+  // отбрасывание от источника удара
+  const dx = mob.pos.x - fromX;
+  const dz = mob.pos.z - fromZ;
+  const len = Math.hypot(dx, dz);
+  if (len > 0.001) {
+    mob.vel.x += (dx / len) * 5.0;
+    mob.vel.z += (dz / len) * 5.0;
+  }
+  mob.vel.y = 4.5;
+  mob.onGround = false;
+
+  if (mob.hp <= 0) {
+    mob.hp = 0;
+    mob.dead = true;
+    if (window.SFX && window.SFX.mobDeath) window.SFX.mobDeath(mob.type);
+    return true;
+  }
+  if (window.SFX && window.SFX.mobHurt) window.SFX.mobHurt(mob.type);
+  return false;
+}
+
+/* ============================================================
+   RAYCAST ПО МОБАМ (slab-метод, AABB)
+   ============================================================ */
+function raycastMob(origin, dir, maxDist) {
+  let best = null;
+  let bestT = maxDist;
+
+  for (let i = 0; i < mobs.length; i++) {
+    const m = mobs[i];
+    if (m.dead) continue;
+    const r = m.def.r, h = m.def.h;
+    const minX = m.pos.x - r, maxX = m.pos.x + r;
+    const minY = m.pos.y,     maxY = m.pos.y + h;
+    const minZ = m.pos.z - r, maxZ = m.pos.z + r;
+
+    let tmin = 0, tmax = bestT;
+    let ok = true;
+
+    // X
+    if (Math.abs(dir.x) < 1e-8) {
+      if (origin.x < minX || origin.x > maxX) continue;
+    } else {
+      let t1 = (minX - origin.x) / dir.x;
+      let t2 = (maxX - origin.x) / dir.x;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      if (t1 > tmin) tmin = t1;
+      if (t2 < tmax) tmax = t2;
+      if (tmin > tmax) continue;
+    }
+    // Y
+    if (Math.abs(dir.y) < 1e-8) {
+      if (origin.y < minY || origin.y > maxY) continue;
+    } else {
+      let t1 = (minY - origin.y) / dir.y;
+      let t2 = (maxY - origin.y) / dir.y;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      if (t1 > tmin) tmin = t1;
+      if (t2 < tmax) tmax = t2;
+      if (tmin > tmax) continue;
+    }
+    // Z
+    if (Math.abs(dir.z) < 1e-8) {
+      if (origin.z < minZ || origin.z > maxZ) continue;
+    } else {
+      let t1 = (minZ - origin.z) / dir.z;
+      let t2 = (maxZ - origin.z) / dir.z;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      if (t1 > tmin) tmin = t1;
+      if (t2 < tmax) tmax = t2;
+      if (tmin > tmax) continue;
+    }
+
+    if (tmin >= 0 && tmin < bestT) {
+      bestT = tmin;
+      best = m;
+    }
+  }
+
+  return best ? { mob: best, t: bestT } : null;
+}
+
+/* ============================================================
    AI + ОБНОВЛЕНИЕ
    ============================================================ */
 function updateMob(mob, dt) {
   const def = mob.def;
 
+  // если мёртв — не двигаем, но мигаем вниз
+  if (mob.dead) {
+    mob.group.visible = false;   // уже удаляется, скроем
+    return;
+  }
+
+  // --- мигание при уроне ---
+  if (mob.hurtTimer > 0) {
+    mob.hurtTimer -= dt;
+    mob.group.visible = (Math.floor(mob.hurtTimer * 30) % 2 === 0);
+    if (mob.hurtTimer <= 0) mob.group.visible = true;
+  }
+
   if (mob.avoidCooldown > 0) mob.avoidCooldown -= dt;
   if (mob.jumpCooldown > 0)  mob.jumpCooldown  -= dt;
 
+  // --- звук по таймеру ---
   mob.soundTimer -= dt;
   if (mob.soundTimer <= 0) {
     mob.soundTimer = SOUND_INTERVAL_MIN + Math.random() * (SOUND_INTERVAL_MAX - SOUND_INTERVAL_MIN);
     maybePlaySound(mob);
   }
 
-  mob.wanderTimer -= dt;
-  if (mob.wanderTimer <= 0) {
-    if (mob.walking && Math.random() < 0.45) {
-      mob.walking = false;
-      mob.wanderTimer = 1.5 + Math.random() * 3;
-    } else {
+  /* ---------- PANIC: убегает от игрока ---------- */
+  if (mob.panicTimer > 0) {
+    mob.panicTimer -= dt;
+    if (playerPos) {
+      const dx = mob.pos.x - playerPos.x;
+      const dz = mob.pos.z - playerPos.z;
+      // Направление движения = (dx, dz). yaw = atan2(-dx, -dz).
+      mob.targetYaw = Math.atan2(-dx, -dz);
       mob.walking = true;
-      mob.targetYaw = Math.random() * Math.PI * 2;
-      mob.wanderTimer = 2 + Math.random() * 3;
+    }
+  } else {
+    /* ---------- обычное блуждание ---------- */
+    mob.wanderTimer -= dt;
+    if (mob.wanderTimer <= 0) {
+      if (mob.walking && Math.random() < 0.45) {
+        mob.walking = false;
+        mob.wanderTimer = 1.5 + Math.random() * 3;
+      } else {
+        mob.walking = true;
+        mob.targetYaw = Math.random() * Math.PI * 2;
+        mob.wanderTimer = 2 + Math.random() * 3;
+      }
+    }
+
+    /* ---------- look-at-player: иногда оборачивается к игроку рядом ---------- */
+    if (!mob.walking && playerPos) {
+      mob.lookAtCooldown -= dt;
+      if (mob.lookAtCooldown <= 0) {
+        mob.lookAtCooldown = 3 + Math.random() * 4;
+        const dx = playerPos.x - mob.pos.x;
+        const dz = playerPos.z - mob.pos.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < 36) {   // 6 блоков
+          // Направление движения = (dx, dz). Смотрит В СТОРОНУ игрока.
+          mob.targetYaw = Math.atan2(-dx, -dz);
+        }
+      }
     }
   }
 
+  // --- плавный поворот ---
   let dyaw = mob.targetYaw - mob.yaw;
   while (dyaw >  Math.PI) dyaw -= Math.PI * 2;
   while (dyaw < -Math.PI) dyaw += Math.PI * 2;
   mob.yaw += dyaw * Math.min(1, 5 * dt);
 
+  // --- горизонтальная скорость: сохраняется и в прыжке ---
+  const speedMult = mob.panicTimer > 0 ? PANIC_SPEED_MULT : 1.0;
   let vx = 0, vz = 0;
   if (mob.walking) {
-    vx = -Math.sin(mob.yaw) * def.speed;
-    vz = -Math.cos(mob.yaw) * def.speed;
+    vx = -Math.sin(mob.yaw) * def.speed * speedMult;
+    vz = -Math.cos(mob.yaw) * def.speed * speedMult;
   }
 
+  // --- гравитация ---
   mob.vel.y -= GRAVITY * dt;
   if (mob.vel.y < -30) mob.vel.y = -30;
 
-  mobMove(mob, vx * dt, mob.vel.y * dt, vz * dt);
+  // --- перемещение ---
+  // сохраняем скорость для прыжка/knockback
+  const prevVx = mob.vel.x, prevVz = mob.vel.z;
+  // суммарное смещение = (knockback + AI-движение), затем затухание knockback
+  mob.vel.x = prevVx * Math.max(0, 1 - 4 * dt);
+  mob.vel.z = prevVz * Math.max(0, 1 - 4 * dt);
+  const totalVx = vx + mob.vel.x;
+  const totalVz = vz + mob.vel.z;
 
+  mobMove(mob, totalVx * dt, mob.vel.y * dt, totalVz * dt);
+
+  // --- земля под ногами ---
   mob.onGround = mobCollides(mob.pos.x, mob.pos.y - 0.05, mob.pos.z, def.r, def.h);
   if (mob.onGround && mob.vel.y < 0) mob.vel.y = 0;
 
-  if (mob.walking && mob.onGround) {
+  /* ---------- детектор застревания ---------- */
+  if (mob.walking && mob.onGround && mob.panicTimer <= 0) {
     const movedSq = (mob.pos.x - mob.lastX) * (mob.pos.x - mob.lastX) +
                     (mob.pos.z - mob.lastZ) * (mob.pos.z - mob.lastZ);
     const expected = def.speed * dt * 0.1;
@@ -521,8 +665,9 @@ function updateMob(mob, dt) {
   mob.lastX = mob.pos.x;
   mob.lastZ = mob.pos.z;
 
+  // --- анимация ходьбы ---
   if (mob.walking && mob.onGround) {
-    mob.walkPhase += dt * 8;
+    mob.walkPhase += dt * 8 * speedMult;
   } else {
     mob.walkPhase *= 0.9;
   }
@@ -532,9 +677,11 @@ function updateMob(mob, dt) {
     mob.legs[i].mesh.position.y = mob.legs[i].baseY + s;
   }
 
+  // --- трансформ ---
   mob.group.position.copy(mob.pos);
   mob.group.rotation.y = mob.yaw;
 
+  // --- страховка от падения в бездну ---
   if (mob.pos.y < -10) {
     const ix = Math.floor(mob.pos.x), iz = Math.floor(mob.pos.z);
     if (ix >= 0 && ix < SX && iz >= 0 && iz < SZ) {
@@ -615,7 +762,8 @@ function serialize() {
   const out = [];
   for (let i = 0; i < mobs.length; i++) {
     const m = mobs[i];
-    out.push({ t: m.type, x: m.pos.x, y: m.pos.y, z: m.pos.z, yaw: m.yaw });
+    if (m.dead) continue;
+    out.push({ t: m.type, x: m.pos.x, y: m.pos.y, z: m.pos.z, yaw: m.yaw, hp: m.hp });
   }
   return out;
 }
@@ -626,7 +774,8 @@ function deserialize(arr) {
   for (let i = 0; i < arr.length; i++) {
     const d = arr[i];
     if (!MOB_TYPES[d.t]) continue;
-    createMob(d.t, d.x, d.y, d.z, d.yaw);
+    const mob = createMob(d.t, d.x, d.y, d.z, d.yaw);
+    if (typeof d.hp === 'number' && d.hp > 0) mob.hp = Math.min(mob.maxHp, d.hp);
   }
 }
 
@@ -640,6 +789,25 @@ function init(sc) {
 function update(dt, pPos) {
   if (pPos) playerPos = pPos;
   for (let i = 0; i < mobs.length; i++) updateMob(mobs[i], dt);
+
+  // удаляем мёртвых
+  for (let i = mobs.length - 1; i >= 0; i--) {
+    if (mobs[i].dead) {
+      scene.remove(mobs[i].group);
+      mobs[i].group.traverse(function (o) {
+        if (o.geometry) o.geometry.dispose();
+      });
+      mobs.splice(i, 1);
+    }
+  }
+}
+
+function raycast(origin, dir, maxDist) {
+  return raycastMob(origin, dir, maxDist);
+}
+
+function hit(mob, damage, fromX, fromZ) {
+  return hitMob(mob, damage, fromX, fromZ);
 }
 
 return {
@@ -650,7 +818,9 @@ return {
   clear: clear,
   serialize: serialize,
   deserialize: deserialize,
-  count: function () { return mobs.length; }
+  count: function () { return mobs.length; },
+  raycast: raycast,
+  hit: hit
 };
 
 })();

@@ -7,6 +7,7 @@
    + мирные мобы (MOBS) со своими текстурами и звуками
    + здоровье игрока (HP, урон от падения, регенерация, смерть)
    + 10 слотов хотбара, включая песок (клавиша 0)
+   + ЛКМ: удар по мобу (урон, отбрасывание, паника)
    ============================================================ */
 (function () {
 'use strict';
@@ -67,8 +68,8 @@ const SFX = (function () {
 /* ---------- безопасная обёртка MOBS ---------- */
 const MOBS = (function () {
   const m = window.MOBS;
-  if (m) return m;
-  console.warn('[game.js] mobs.js не загрузился — мобы отключены');
+  if (m && m.raycast && m.hit) return m;
+  console.warn('[game.js] mobs.js не загрузился полностью — мобы отключены');
   const noop = function () {};
   return {
     init: noop, update: noop,
@@ -77,7 +78,9 @@ const MOBS = (function () {
     clear: noop,
     serialize: function () { return []; },
     deserialize: noop,
-    count: function () { return 0; }
+    count: function () { return 0; },
+    raycast: function () { return null; },
+    hit: function () { return false; }
   };
 })();
 
@@ -347,6 +350,10 @@ refreshHearts();
    ============================================================ */
 const PR = 0.3, PH = 1.8, EYE = 1.62;
 const GRAVITY = 28, JUMP = 9;
+const PLAYER_DAMAGE = 4;
+const ATTACK_RANGE = 3.5;
+const ATTACK_COOLDOWN = 0.4;
+let attackTimer = 0;
 
 const player = {
   pos: new THREE.Vector3(SX / 2 + 0.5, 30, SZ / 2 + 0.5),
@@ -502,6 +509,8 @@ let mouseDown = [false, false, false];
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (!locked || dead) return;
   mouseDown[e.button] = true;
+  // атака мобов обрабатывается в update() (с кулдауном),
+  // но сбрасываем прогресс ломания, чтобы не путать состояния
   if (e.button === 0) {
     breaking.active = false;
     breaking.progress = 0;
@@ -524,6 +533,7 @@ document.addEventListener('wheel', (e) => {
    5. РЕЙКАСТ И ВЗАИМОДЕЙСТВИЕ
    ============================================================ */
 const _dir = new THREE.Vector3();
+const _hitDir = new THREE.Vector3();
 
 function raycastBlock() {
   _dir.set(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -553,6 +563,17 @@ function stopBreaking() {
   breaking.stage = 0;
   breaking.target = null;
   crackMesh.visible = false;
+}
+
+/* попытка ударить моба в прицеле */
+function tryAttackMob() {
+  if (attackTimer > 0) return false;
+  _hitDir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  const hit = MOBS.raycast(camera.position, _hitDir, ATTACK_RANGE);
+  if (!hit) return false;
+  MOBS.hit(hit.mob, PLAYER_DAMAGE, player.pos.x, player.pos.z);
+  attackTimer = ATTACK_COOLDOWN;
+  return true;
 }
 
 function updateBreaking(dt) {
@@ -837,6 +858,8 @@ let stepAcc = 0;
 let sprintActive = false;
 
 function update(dt) {
+  if (attackTimer > 0) attackTimer -= dt;
+
   if (!dead) {
     _fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
     _rgt.set( Math.cos(yaw), 0, -Math.sin(yaw));
@@ -993,6 +1016,15 @@ function update(dt) {
   } else {
     hlBox.visible = false;
   }
+
+  /* ---- атака мобов по удержанию ЛКМ ---- */
+  if (locked && mouseDown[0] && !dead) {
+    if (tryAttackMob()) {
+      // атака прошла — прерываем ломание, чтобы не смешивать действия
+      if (breaking.active) stopBreaking();
+    }
+  }
+
   updateBreaking(dt);
 
   saveTimer += dt;
