@@ -1,5 +1,5 @@
-# CI: установка (без зависимостей) и запуск smoke-тестов
-name: Node.js CI
+# CI: установка и запуск smoke-тестов в среде Windows
+name: Node.js CI (Windows)
 
 on:
   push:
@@ -9,12 +9,13 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Меняем Linux на Windows
+    runs-on: windows-latest
 
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18.x, 20.x, 22.x]
+        node-version: [build]
 
     steps:
       - uses: actions/checkout@v4
@@ -24,8 +25,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      # Зависимостей нет — npm install проходит мгновенно.
-      # Если появятся — замените на: npm ci (после генерации package-lock.json)
+      # На Windows команда отработает аналогично
       - name: Install dependencies
         run: npm install
 
