@@ -119,7 +119,7 @@ hlBox.visible = false;
 scene.add(hlBox);
 
 /* ============================================================
-   1.0. ОБЛАКА — набор разных облаков
+   1.0. ОБЛАКА
    ============================================================ */
 const clouds = (function makeClouds() {
   const group = new THREE.Group();
@@ -1164,15 +1164,10 @@ function loop(now) {
     console.error('update error', e);
   }
 
-  let status = '';
-  if (player.fly) status = '  ✈ ПОЛЁТ';
-  else if (sprintActive) status = '  🏃 БЕГ';
-
+  /* ---- HUD: только координаты, FPS и версия ---- */
   infoEl.textContent =
     'XYZ: ' + player.pos.x.toFixed(1) + ' / ' + player.pos.y.toFixed(1) + ' / ' + player.pos.z.toFixed(1) + '\n' +
-    'HP: ' + hp + ' / ' + MAX_HP +
-    '  ·  FPS: ' + fpsVal + '  ·  мобов: ' + MOBS.count() +
-    '  ·  ' + GAME_VERSION + status;
+    'FPS: ' + fpsVal + '  ·  ' + GAME_VERSION;
 
   renderer.render(scene, camera);
 }
