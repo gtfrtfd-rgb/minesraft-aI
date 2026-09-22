@@ -1,4 +1,4 @@
-name: Node.js CI (Windows)
+name: Node.js CI & Deploy to GitHub Pages
 
 on:
   push:
@@ -6,8 +6,19 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Разрешаем воркфлоу делать публикации на GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Исключаем одновременные деплои, если коммиты идут один за другим
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
-  build:
+  build_and_test:
     runs-on: windows-latest
 
     strategy:
@@ -31,3 +42,29 @@ jobs:
 
       - name: Test
         run: npm test
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    # Деплой запустится ТОЛЬКО если тесты на Windows прошли успешно и это ветка main
+    needs: build_and_test
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      # Собираем статические файлы проекта для публикации
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.' # Загружаем корень репозитория, где лежит index.html
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
