@@ -1,5 +1,6 @@
 /* ============================================================
    sounds.js — процедурные звуки на Web Audio API (без файлов)
+   Профили материалов: grass / dirt / sand / stone / wood / glass / snow
    Публичный объект:
      window.SFX = {
        resume, break, place, step, jump, select,
@@ -33,6 +34,25 @@ function noiseBuffer(seconds, decay) {
   return buf;
 }
 
+/* «Хрустящий» буфер — с резкими короткими импульсами поверх шума.
+   Идеально для снега: плотная короткая «крупа» сломавшихся кристаллов. */
+function crackleBuffer(seconds, crackleRate, decay) {
+  const c = getCtx(); if (!c) return null;
+  const len = Math.max(1, Math.floor(c.sampleRate * seconds));
+  const buf = c.createBuffer(1, len, c.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    const t = i / len;
+    // базовый шум + отдельные «щелчки» (короткие всплески)
+    let v = (Math.random() * 2 - 1) * Math.pow(1 - t, decay);
+    if (Math.random() < crackleRate) {
+      v += (Math.random() * 2 - 1) * 1.4;
+    }
+    d[i] = Math.max(-1, Math.min(1, v));
+  }
+  return buf;
+}
+
 function playNoise(o) {
   const c = getCtx(); if (!c) return;
   const duration = o.duration != null ? o.duration : 0.15;
@@ -41,7 +61,11 @@ function playNoise(o) {
   const attack   = o.attack   != null ? o.attack   : 0.003;
   const when     = o.when     != null ? o.when     : 0;
 
-  const buf = noiseBuffer(duration, decay); if (!buf) return;
+  const buf = o.crackle
+    ? crackleBuffer(duration, o.crackleRate || 0.08, decay)
+    : noiseBuffer(duration, decay);
+  if (!buf) return;
+
   const src = c.createBufferSource();
   src.buffer = buf;
 
@@ -104,8 +128,12 @@ function matName(id) {
   }
 }
 
+/* ============================================================
+   ЛОМАНИЕ БЛОКА
+   ============================================================ */
 function sndBreak(id) {
   const m = matName(id);
+
   if (m === 'grass') {
     playNoise({ duration: 0.18, decay: 2.8, filterType: 'bandpass', freq: 2400, freqEnd: 900, Q: 1.2, gain: 0.22 });
     playNoise({ duration: 0.26, decay: 2.0, filterType: 'highpass', freq: 3200, gain: 0.05, when: 0.01 });
@@ -147,15 +175,30 @@ function sndBreak(id) {
     playNoise({ duration: 0.22, decay: 2.0, filterType: 'highpass', freq: 2800, gain: 0.13 });
     return;
   }
+
+  /* ---------- СНЕГ: ломание ----------
+     Плотный «ХРУСТ»: серия коротких высокочастотных щелчков
+     (снежинки-кристаллы ломаются) + тихий сжатый низ. */
   if (m === 'snow') {
-    playNoise({ duration: 0.16, decay: 2.5, filterType: 'lowpass', freq: 1700, freqEnd: 500, gain: 0.16 });
+    // сухой хруст — резкие импульсы на band-pass 3–4 кГц
+    playNoise({ duration: 0.18, decay: 3.0, crackle: true, crackleRate: 0.12,
+                filterType: 'bandpass', freq: 3400, freqEnd: 1400, Q: 1.4, gain: 0.20 });
+    // более тонкая «крупа» сверху — ещё импульсы на high-pass
+    playNoise({ duration: 0.14, decay: 4.0, crackle: true, crackleRate: 0.09,
+                filterType: 'highpass', freq: 4200, gain: 0.09, when: 0.005 });
+    // сжатый низ — «ухнуло» под ногами
+    playNoise({ duration: 0.10, decay: 4.5, filterType: 'lowpass', freq: 900, freqEnd: 220, gain: 0.11 });
     return;
   }
 }
 
+/* ============================================================
+   УСТАНОВКА БЛОКА
+   ============================================================ */
 function sndPlace(id) {
   const m = matName(id);
   const p = 0.94 + Math.random() * 0.12;
+
   if (m === 'glass') {
     playTone({ type: 'triangle', f0: 1800 * p, f1: 1650, duration: 0.05, gain: 0.12 });
     playNoise({ duration: 0.06, decay: 3, filterType: 'highpass', freq: 3200, gain: 0.06 });
@@ -174,10 +217,25 @@ function sndPlace(id) {
     playNoise({ duration: 0.06, decay: 4, filterType: 'bandpass', freq: 950, Q: 2, gain: 0.10 });
     return;
   }
+
+  /* ---------- СНЕГ: установка ----------
+     Мягкий «ПУФ» — глухой короткий хлопок + сжатое «шипение»
+     под весом блока. Никаких металлических нот. */
+  if (m === 'snow') {
+    playNoise({ duration: 0.14, decay: 3.5, filterType: 'lowpass', freq: 1100 * p, freqEnd: 320, gain: 0.18 });
+    playNoise({ duration: 0.07, decay: 5.0, filterType: 'bandpass', freq: 2600 * p, Q: 1.2, gain: 0.05, when: 0.004 });
+    playTone({ type: 'sine', f0: 160 * p, f1: 90, duration: 0.07, gain: 0.05 });
+    return;
+  }
+
+  /* stone / dirt */
   playTone({ type: 'square', f0: 190 * p, f1: 90, duration: 0.05, gain: 0.10 });
   playNoise({ duration: 0.06, decay: 4, filterType: 'bandpass', freq: 1400 * p, Q: 2, gain: 0.15 });
 }
 
+/* ============================================================
+   ШАГ
+   ============================================================ */
 function sndStep(id, sprinting) {
   const m = matName(id);
   const mult = sprinting ? 1.35 : 1.0;
@@ -210,11 +268,25 @@ function sndStep(id, sprinting) {
     playNoise({ duration: 0.06, decay: 4, filterType: 'bandpass', freq: (900 + sign * 100) * jit, Q: 2, gain: 0.11 * mult });
     return;
   }
+
+  /* ---------- СНЕГ: шаг ----------
+     Характерный «СКРИП-ХРУСТ» — звук, по которому снег узнают издалека:
+       • короткий «скрип» — узкий band-pass с высокой Q на 1.8–2.2 кГц;
+       • «хруст» — серия импульсов через crackle-буфер на 3–4 кГц;
+       • глухой удар — низкий low-pass, чтобы шаг «ощущался» под весом. */
   if (m === 'snow') {
-    playNoise({ duration: 0.10, decay: 3.0, filterType: 'lowpass', freq: 1500 * jit, freqEnd: 550, gain: 0.13 * mult });
-    playNoise({ duration: 0.06, decay: 3.5, filterType: 'bandpass', freq: 500 * jit, Q: 1.2, gain: 0.05 * mult, when: 0.005 });
+    const base = (1900 + sign * 180) * jit;
+
+    // скрип — тонкий писк сжатого снега
+    playNoise({ duration: 0.06, decay: 3.0, filterType: 'bandpass', freq: base, Q: 6.0, gain: 0.075 * mult });
+    // хруст — короткие импульсы-кристаллы
+    playNoise({ duration: 0.09, decay: 3.5, crackle: true, crackleRate: 0.10,
+                filterType: 'bandpass', freq: (3300 + sign * 250) * jit, Q: 1.8, gain: 0.11 * mult, when: 0.005 });
+    // глухой удар — низ
+    playNoise({ duration: 0.08, decay: 4.0, filterType: 'lowpass', freq: 800 * jit, freqEnd: 260, gain: 0.10 * mult });
     return;
   }
+
   playNoise({ duration: 0.08, decay: 3.5, filterType: 'bandpass', freq: (620 + sign * 60) * jit, Q: 1.2, gain: 0.13 * mult });
 }
 
@@ -255,7 +327,9 @@ function sndDeath() {
   playNoise({ duration: 0.10, decay: 5, filterType: 'highpass', freq: 3200, gain: 0.08 });
 }
 
-/* ---------- обычные звуки мобов ---------- */
+/* ============================================================
+   ЗВУКИ МОБОВ
+   ============================================================ */
 function sndPig() {
   const p = 0.9 + Math.random() * 0.2;
   playTone({ type: 'sawtooth', f0: 220 * p, f1: 150 * p, duration: 0.12, gain: 0.10 });
@@ -342,7 +416,6 @@ function sndChicken() {
   playNoise({ duration: 0.03, decay: 6, filterType: 'highpass', freq: 3000, gain: 0.03 });
 }
 
-/* ---------- звуки боли мобов (короткие, с искажением) ---------- */
 function sndMobHurt(type) {
   const p = 0.9 + Math.random() * 0.2;
   if (type === 'pig') {
@@ -368,7 +441,6 @@ function sndMobHurt(type) {
   }
 }
 
-/* ---------- звуки смерти мобов (ниже, длиннее, мрачнее) ---------- */
 function sndMobDeath(type) {
   const p = 0.9 + Math.random() * 0.15;
   if (type === 'pig') {

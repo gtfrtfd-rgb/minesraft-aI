@@ -6,7 +6,7 @@
    + бег (Shift / двойной W / двойная ↑) и полёт (F) с FOV
    + мирные мобы (MOBS) со своими текстурами и звуками
    + здоровье игрока (HP, урон от падения, регенерация, смерть)
-   + 10 слотов хотбара, включая песок (клавиша 0)
+   + 11 слотов хотбара: 1–9, 0, − (снег)
    + ЛКМ: удар по мобу (урон, отбрасывание, паника)
    + облака на небе: 26 разных облаков с 8 текстурами
    + биомы и увеличенный мир (256×256×48)
@@ -46,7 +46,7 @@ const generateWorld = MC.generateWorld;
 const buildChunk = MC.buildChunk, buildAllChunks = MC.buildAllChunks;
 const rebuildAround = MC.rebuildAround, rebuildAll = MC.rebuildAll;
 
-const GAME_VERSION = 'V2.0.2';
+const GAME_VERSION = 'V2.1';
 
 const SFX = (function () {
   const s = window.SFX;
@@ -617,6 +617,8 @@ document.addEventListener('keydown', (e) => {
     let n = parseInt(e.code.slice(5), 10);
     if (n === 0) n = 10;
     if (n >= 1 && n <= HOTBAR.length) selectSlot(n - 1);
+  } else if (e.code === 'Minus') {
+    if (HOTBAR.length >= 11) selectSlot(10);
   }
 });
 document.addEventListener('keyup', (e) => {
@@ -758,7 +760,7 @@ function placeBlock() {
 /* ============================================================
    6. ИНТЕРФЕЙС: ХОТБАР
    ============================================================ */
-const HOTBAR = [1, 2, 3, 4, 8, 9, 6, 7, 10, 5];
+const HOTBAR = [1, 2, 3, 4, 8, 9, 6, 7, 10, 5, 11];
 let selected = 0;
 const hotbarEl = document.getElementById('hotbar');
 const slotEls = [];
@@ -771,7 +773,7 @@ HOTBAR.forEach((id, i) => {
   const col = t % ACOLS, row = (t / ACOLS) | 0;
   el.style.backgroundImage = 'url(' + atlasURL + ')';
   el.style.backgroundPosition = (col * 100 / 3) + '% ' + (row * 100 / 3) + '%';
-  const label = (i === 9) ? '0' : (i + 1);
+  const label = (i === 9) ? '0' : (i === 10) ? '−' : (i + 1);
   el.innerHTML = '<span class="num">' + label + '</span>';
   el.title = BLOCKS[id].name;
   el.addEventListener('click', function () { selectSlot(i); });
@@ -1164,7 +1166,6 @@ function loop(now) {
     console.error('update error', e);
   }
 
-  /* ---- HUD: только координаты, FPS и версия ---- */
   infoEl.textContent =
     'XYZ: ' + player.pos.x.toFixed(1) + ' / ' + player.pos.y.toFixed(1) + ' / ' + player.pos.z.toFixed(1) + '\n' +
     'FPS: ' + fpsVal + '  ·  ' + GAME_VERSION;
