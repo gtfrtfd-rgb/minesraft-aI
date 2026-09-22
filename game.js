@@ -45,6 +45,8 @@ const generateWorld = MC.generateWorld;
 const buildChunk = MC.buildChunk, buildAllChunks = MC.buildAllChunks;
 const rebuildAround = MC.rebuildAround, rebuildAll = MC.rebuildAll;
 
+const GAME_VERSION = 'v2';
+
 /* ---------- безопасная обёртка SFX ---------- */
 const SFX = (function () {
   const s = window.SFX;
@@ -483,7 +485,6 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Space') e.preventDefault();
   if (e.code.indexOf('Arrow') === 0) e.preventDefault();
 
-  // выбор слота: 1..9 — слоты 1..9, 0 — слот 10
   if (e.code.indexOf('Digit') === 0) {
     let n = parseInt(e.code.slice(5), 10);
     if (n === 0) n = 10;
@@ -618,7 +619,6 @@ function placeBlock() {
 /* ============================================================
    6. ИНТЕРФЕЙС: ХОТБАР
    ============================================================ */
-// 10 слотов: песок (ID 5) добавлен в конец, на клавишу 0.
 const HOTBAR = [1, 2, 3, 4, 8, 9, 6, 7, 10, 5];
 let selected = 0;
 const hotbarEl = document.getElementById('hotbar');
@@ -632,7 +632,6 @@ HOTBAR.forEach((id, i) => {
   const col = t % ACOLS, row = (t / ACOLS) | 0;
   el.style.backgroundImage = 'url(' + atlasURL + ')';
   el.style.backgroundPosition = (col * 100 / 3) + '% ' + (row * 100 / 3) + '%';
-  // подпись: 1..9 для первых девяти, 0 для десятого
   const label = (i === 9) ? '0' : (i + 1);
   el.innerHTML = '<span class="num">' + label + '</span>';
   el.title = BLOCKS[id].name;
@@ -1027,7 +1026,9 @@ function loop(now) {
 
   infoEl.textContent =
     'XYZ: ' + player.pos.x.toFixed(1) + ' / ' + player.pos.y.toFixed(1) + ' / ' + player.pos.z.toFixed(1) + '\n' +
-    'HP: ' + hp + ' / ' + MAX_HP + '  ·  FPS: ' + fpsVal + '  ·  мобов: ' + MOBS.count() + status;
+    'HP: ' + hp + ' / ' + MAX_HP +
+    '  ·  FPS: ' + fpsVal + '  ·  мобов: ' + MOBS.count() +
+    '  ·  ' + GAME_VERSION + status;
 
   renderer.render(scene, camera);
 }
