@@ -4,6 +4,10 @@
    + материальные звуки и шаги
    + невидимые барьеры по краям мира
    + бег (Shift / двойной W / двойная ↑) и полёт (F) с FOV
+   + мирные мобы (MOBS)
+   + здоровье игрока (HP, урон от падения, регенерация, смерть)
+   + звук получения урона и смерти
+   + 10 слотов хотбара, включая песок (клавиша 0)
    ============================================================ */
 (function () {
 'use strict';
@@ -47,11 +51,33 @@ const SFX = (function () {
   if (s) {
     if (!s.flyOn)  s.flyOn  = function () {};
     if (!s.flyOff) s.flyOff = function () {};
+    if (!s.hurt)   s.hurt   = function () {};
+    if (!s.death)  s.death  = function () {};
     return s;
   }
   console.warn('[game.js] sounds.js не загрузился — работаем без звуков');
   const noop = function () {};
-  return { resume: noop, break: noop, place: noop, step: noop, jump: noop, select: noop, flyOn: noop, flyOff: noop };
+  return {
+    resume: noop, break: noop, place: noop, step: noop, jump: noop,
+    select: noop, flyOn: noop, flyOff: noop, hurt: noop, death: noop
+  };
+})();
+
+/* ---------- безопасная обёртка MOBS ---------- */
+const MOBS = (function () {
+  const m = window.MOBS;
+  if (m) return m;
+  console.warn('[game.js] mobs.js не загрузился — мобы отключены');
+  const noop = function () {};
+  return {
+    init: noop, update: noop,
+    spawnInitial: function () { return 0; },
+    spawnAt: function () { return null; },
+    clear: noop,
+    serialize: function () { return []; },
+    deserialize: noop,
+    count: function () { return 0; }
+  };
 })();
 
 /* ============================================================
@@ -79,6 +105,8 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+MOBS.init(scene);
 
 const hlBox = new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004)),
@@ -208,7 +236,113 @@ const HARDNESS = {
 };
 
 /* ============================================================
-   2. ИГРОК
+   2. ЗДОРОВЬЕ ИГРОКА
+   ============================================================ */
+const MAX_HP = 20;
+const HEARTS = MAX_HP / 2;
+const FALL_SAFE = 3;
+const REGEN_DELAY_MS = 8000;
+const REGEN_INTERVAL_S = 4.0;
+
+let hp = MAX_HP;
+let dead = false;
+let lastDamageTime = -99999;
+let regenAcc = 0;
+
+let wasOnGround = true;
+let highestAirY = 0;
+
+const healthEl = document.getElementById('health');
+const hurtEl = document.getElementById('hurt');
+const deathEl = document.getElementById('death');
+const respawnBtn = document.getElementById('respawnBtn');
+
+const heartEls = [];
+for (let i = 0; i < HEARTS; i++) {
+  const h = document.createElement('div');
+  h.className = 'heart';
+  healthEl.appendChild(h);
+  heartEls.push(h);
+}
+
+function refreshHearts() {
+  for (let i = 0; i < HEARTS; i++) {
+    const v = hp - i * 2;
+    const el = heartEls[i];
+    if (v >= 2) {
+      el.classList.remove('empty', 'half');
+    } else if (v === 1) {
+      el.classList.add('half');
+      el.classList.remove('empty');
+    } else {
+      el.classList.add('empty');
+      el.classList.remove('half');
+    }
+  }
+}
+
+let hurtTimer = null;
+function flashHurt() {
+  hurtEl.style.opacity = '1';
+  clearTimeout(hurtTimer);
+  hurtTimer = setTimeout(function () { hurtEl.style.opacity = '0'; }, 130);
+}
+
+function damagePlayer(amount, silent) {
+  if (dead || amount <= 0) return;
+  hp -= amount;
+  if (hp < 0) hp = 0;
+  lastDamageTime = performance.now();
+  regenAcc = 0;
+  refreshHearts();
+  flashHurt();
+
+  if (!silent) {
+    if (hp > 0) SFX.hurt();
+    else        SFX.death();
+  }
+
+  if (hp === 0) die();
+}
+
+function healPlayer(amount) {
+  if (dead || amount <= 0) return;
+  hp = Math.min(MAX_HP, hp + amount);
+  refreshHearts();
+}
+
+function die() {
+  if (dead) return;
+  dead = true;
+  player.fly = false;
+  player.vel.set(0, 0, 0);
+  deathEl.style.display = 'flex';
+  if (document.pointerLockElement) document.exitPointerLock();
+  console.log('[game.js] игрок умер');
+}
+
+function respawnFromDeath() {
+  dead = false;
+  hp = MAX_HP;
+  lastDamageTime = -99999;
+  regenAcc = 0;
+  refreshHearts();
+  deathEl.style.display = 'none';
+  respawn();
+  wasOnGround = true;
+  highestAirY = player.pos.y;
+  lockPointer();
+}
+
+respawnBtn.addEventListener('click', function (e) {
+  e.stopPropagation();
+  respawnFromDeath();
+});
+
+refreshHearts();
+
+/* ============================================================
+   3. ИГРОК
    ============================================================ */
 const PR = 0.3, PH = 1.8, EYE = 1.62;
 const GRAVITY = 28, JUMP = 9;
@@ -272,30 +406,21 @@ function respawn() {
 }
 
 /* ============================================================
-   3. УПРАВЛЕНИЕ
+   4. УПРАВЛЕНИЕ
    ============================================================ */
 const keys = Object.create(null);
 let locked = false;
 
-// --- спринт-лок по двойному тапу ---
-// Работает и для W, и для стрелки ↑. Каждое направление трекается отдельно,
-// чтобы быстрая смена клавиш не путала логику.
 const DOUBLE_TAP_MS = 280;
 const lastTap = { KeyW: 0, ArrowUp: 0 };
 const doubleLock = { KeyW: false, ArrowUp: false };
 
-function sprintLockActive() {
-  return doubleLock.KeyW || doubleLock.ArrowUp;
-}
-
-function resetSprintLock() {
-  doubleLock.KeyW = false;
-  doubleLock.ArrowUp = false;
-}
-
 function toggleFly() {
+  if (dead) return;
   player.fly = !player.fly;
   player.vel.y = 0;
+  wasOnGround = false;
+  highestAirY = player.pos.y;
   if (player.fly) {
     SFX.flyOn();
     showHint('Полёт: ВКЛ');
@@ -314,20 +439,23 @@ function lockPointer() {
 }
 
 startBtn.addEventListener('click', lockPointer);
-renderer.domElement.addEventListener('click', function () { if (!locked) lockPointer(); });
+renderer.domElement.addEventListener('click', function () {
+  if (!locked && !dead) lockPointer();
+});
 
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === renderer.domElement;
-  menu.style.display = locked ? 'none' : 'flex';
+  menu.style.display = (locked || dead) ? 'none' : 'flex';
   if (!locked) {
     for (const k in keys) keys[k] = false;
     stopBreaking();
-    resetSprintLock();
+    doubleLock.KeyW = false;
+    doubleLock.ArrowUp = false;
   }
 });
 
 document.addEventListener('mousemove', (e) => {
-  if (!locked) return;
+  if (!locked || dead) return;
   yaw   -= e.movementX * 0.0022;
   pitch -= e.movementY * 0.0022;
   const lim = Math.PI / 2 - 0.001;
@@ -336,12 +464,12 @@ document.addEventListener('mousemove', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  // F — переключение полёта
+  if (dead) return;
+
   if (e.code === 'KeyF' && !e.repeat) {
     toggleFly();
   }
 
-  // двойной тап W или стрелки ↑ — спринт-лок
   if ((e.code === 'KeyW' || e.code === 'ArrowUp') && !e.repeat) {
     const now = performance.now();
     if (now - lastTap[e.code] < DOUBLE_TAP_MS) {
@@ -354,23 +482,25 @@ document.addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (e.code === 'Space') e.preventDefault();
   if (e.code.indexOf('Arrow') === 0) e.preventDefault();
+
+  // выбор слота: 1..9 — слоты 1..9, 0 — слот 10
   if (e.code.indexOf('Digit') === 0) {
-    const n = parseInt(e.code.slice(5), 10);
-    if (n >= 1 && n <= 9) selectSlot(n - 1);
+    let n = parseInt(e.code.slice(5), 10);
+    if (n === 0) n = 10;
+    if (n >= 1 && n <= HOTBAR.length) selectSlot(n - 1);
   }
 });
 document.addEventListener('keyup', (e) => {
   keys[e.code] = false;
-  // отпустили клавишу — её спринт-лок снимается
-  if (e.code === 'KeyW')     doubleLock.KeyW = false;
-  if (e.code === 'ArrowUp')  doubleLock.ArrowUp = false;
+  if (e.code === 'KeyW')    doubleLock.KeyW = false;
+  if (e.code === 'ArrowUp') doubleLock.ArrowUp = false;
 });
 
 document.addEventListener('contextmenu', e => e.preventDefault());
 
 let mouseDown = [false, false, false];
 renderer.domElement.addEventListener('mousedown', (e) => {
-  if (!locked) return;
+  if (!locked || dead) return;
   mouseDown[e.button] = true;
   if (e.button === 0) {
     breaking.active = false;
@@ -385,13 +515,13 @@ renderer.domElement.addEventListener('mouseup', (e) => {
 });
 
 document.addEventListener('wheel', (e) => {
-  if (!locked) return;
+  if (!locked || dead) return;
   const d = e.deltaY > 0 ? 1 : -1;
   selectSlot((selected + d + HOTBAR.length) % HOTBAR.length);
 }, { passive: true });
 
 /* ============================================================
-   4. РЕЙКАСТ И ВЗАИМОДЕЙСТВИЕ
+   5. РЕЙКАСТ И ВЗАИМОДЕЙСТВИЕ
    ============================================================ */
 const _dir = new THREE.Vector3();
 
@@ -426,7 +556,7 @@ function stopBreaking() {
 }
 
 function updateBreaking(dt) {
-  if (!locked || !mouseDown[0] || !currentTarget) {
+  if (!locked || !mouseDown[0] || !currentTarget || dead) {
     if (breaking.active) stopBreaking();
     else crackMesh.visible = false;
     return;
@@ -486,9 +616,10 @@ function placeBlock() {
 }
 
 /* ============================================================
-   5. ИНТЕРФЕЙС: ХОТБАР
+   6. ИНТЕРФЕЙС: ХОТБАР
    ============================================================ */
-const HOTBAR = [1, 2, 3, 4, 8, 9, 6, 7, 10];
+// 10 слотов: песок (ID 5) добавлен в конец, на клавишу 0.
+const HOTBAR = [1, 2, 3, 4, 8, 9, 6, 7, 10, 5];
 let selected = 0;
 const hotbarEl = document.getElementById('hotbar');
 const slotEls = [];
@@ -501,7 +632,9 @@ HOTBAR.forEach((id, i) => {
   const col = t % ACOLS, row = (t / ACOLS) | 0;
   el.style.backgroundImage = 'url(' + atlasURL + ')';
   el.style.backgroundPosition = (col * 100 / 3) + '% ' + (row * 100 / 3) + '%';
-  el.innerHTML = '<span class="num">' + (i + 1) + '</span>';
+  // подпись: 1..9 для первых девяти, 0 для десятого
+  const label = (i === 9) ? '0' : (i + 1);
+  el.innerHTML = '<span class="num">' + label + '</span>';
   el.title = BLOCKS[id].name;
   el.addEventListener('click', function () { selectSlot(i); });
   hotbarEl.appendChild(el);
@@ -528,7 +661,7 @@ function showHint(text) {
 const infoEl = document.getElementById('info');
 
 /* ============================================================
-   6. СОХРАНЕНИЕ
+   7. СОХРАНЕНИЕ
    ============================================================ */
 function u8ToB64(u8) {
   let s = '';
@@ -556,7 +689,9 @@ function saveGame() {
       seed: worldSeed,
       w: u8ToB64(world),
       px: player.pos.x, py: player.pos.y, pz: player.pos.z,
-      yaw: yaw, pitch: pitch, fly: player.fly
+      yaw: yaw, pitch: pitch, fly: player.fly,
+      hp: hp,
+      mobs: MOBS.serialize()
     }));
     dirty = false;
   } catch (e) { console.warn('Не удалось сохранить:', e); }
@@ -575,6 +710,10 @@ function loadGame() {
     player.vel.set(0, 0, 0);
     yaw = d.yaw || 0; pitch = d.pitch || 0;
     player.fly = !!d.fly;
+    if (typeof d.hp === 'number' && d.hp > 0) hp = Math.min(MAX_HP, d.hp);
+    else hp = MAX_HP;
+    refreshHearts();
+    if (d.mobs && d.mobs.length) MOBS.deserialize(d.mobs);
     return true;
   } catch (e) { console.warn('Не удалось загрузить:', e); return false; }
 }
@@ -583,8 +722,12 @@ function newWorld() {
   worldSeed = (Math.random() * 1e9) | 0;
   generateWorld(worldSeed);
   rebuildAll();
+  MOBS.clear();
   respawn();
   yaw = 0; pitch = 0;
+  hp = MAX_HP;
+  refreshHearts();
+  MOBS.spawnInitial(30);
   saveGame();
   showHint('Создан новый мир');
 }
@@ -598,7 +741,7 @@ document.getElementById('newBtn').addEventListener('click', (e) => {
 window.addEventListener('beforeunload', function () { if (dirty) saveGame(); });
 
 /* ============================================================
-   7. ИНИЦИАЛИЗАЦИЯ
+   8. ИНИЦИАЛИЗАЦИЯ
    ============================================================ */
 const loadingEl = document.getElementById('loading');
 const loadingTextEl = loadingEl ? loadingEl.querySelector('div') : null;
@@ -660,8 +803,15 @@ function buildChunksAsync(onProgress, onDone) {
             setLoadingText('Построение мешей… ' + Math.round(built / total * 100) + '%');
           },
           function () {
+            if (MOBS.count() === 0) {
+              setLoadingText('Спавн мобов…');
+              MOBS.spawnInitial(30);
+            }
+            wasOnGround = true;
+            highestAirY = player.pos.y;
             showLoading(false);
-            console.log('[game.js] init OK. Игрок:', player.pos.toArray());
+            console.log('[game.js] init OK. Игрок:', player.pos.toArray(),
+                        '| мобов:', MOBS.count(), '| hp:', hp);
           }
         );
       } catch (e) {
@@ -672,7 +822,7 @@ function buildChunksAsync(onProgress, onDone) {
 })();
 
 /* ============================================================
-   8. ГЛАВНЫЙ ЦИКЛ
+   9. ГЛАВНЫЙ ЦИКЛ
    ============================================================ */
 const _fwd = new THREE.Vector3();
 const _rgt = new THREE.Vector3();
@@ -689,111 +839,156 @@ let stepAcc = 0;
 let sprintActive = false;
 
 function update(dt) {
-  _fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
-  _rgt.set( Math.cos(yaw), 0, -Math.sin(yaw));
-  _wish.set(0, 0, 0);
-  if (locked) {
-    if (keys['KeyW']) _wish.add(_fwd);
-    if (keys['KeyS']) _wish.sub(_fwd);
-    if (keys['KeyD']) _wish.add(_rgt);
-    if (keys['KeyA']) _wish.sub(_rgt);
-    if (keys['ArrowUp'])    _wish.add(_fwd);
-    if (keys['ArrowDown'])  _wish.sub(_fwd);
-    if (keys['ArrowRight']) _wish.add(_rgt);
-    if (keys['ArrowLeft'])  _wish.sub(_rgt);
-  }
-  const moving = _wish.lengthSq() > 0;
-  if (moving) _wish.normalize();
-
-  // «вперёд» считается активным, если зажат W ИЛИ стрелка ↑.
-  // Спринт-лок работает, если зажата соответствующая клавиша и её лок установлен.
-  const forwardHeld = keys['KeyW'] || keys['ArrowUp'];
-  const forwardLock = (keys['KeyW'] && doubleLock.KeyW) || (keys['ArrowUp'] && doubleLock.ArrowUp);
-
-  const shift = !!keys['ShiftLeft'];
-  const ctrl  = !!keys['ControlLeft'];
-
-  let fovTarget = BASE_FOV;
-  sprintActive = false;
-
-  if (player.fly) {
-    const sp = ctrl ? 26 : 12;
-    player.vel.x = _wish.x * sp;
-    player.vel.z = _wish.z * sp;
-    let vy = 0;
-    if (keys['Space']) vy += sp;
-    if (shift)         vy -= sp;
-    player.vel.y = vy;
-    player.onGround = false;
-    stepAcc = 0;
-    fovTarget = ctrl ? FLY_FOV + 8 : FLY_FOV;
-  } else {
-    sprintActive = shift || ctrl || (forwardLock && forwardHeld && moving);
-    const sp = sprintActive ? 7.4 : 4.6;
-    const tx = _wish.x * sp, tz = _wish.z * sp;
-    const k = player.onGround ? 14 : 3.2;
-    const a = Math.min(1, k * dt);
-    player.vel.x += (tx - player.vel.x) * a;
-    player.vel.z += (tz - player.vel.z) * a;
-
-    player.vel.y -= GRAVITY * dt;
-    if (player.vel.y < -55) player.vel.y = -55;
-
-    if (locked && keys['Space'] && player.onGround) {
-      player.vel.y = JUMP;
-      player.onGround = false;
-      SFX.jump();
+  if (!dead) {
+    _fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+    _rgt.set( Math.cos(yaw), 0, -Math.sin(yaw));
+    _wish.set(0, 0, 0);
+    if (locked) {
+      if (keys['KeyW']) _wish.add(_fwd);
+      if (keys['KeyS']) _wish.sub(_fwd);
+      if (keys['KeyD']) _wish.add(_rgt);
+      if (keys['KeyA']) _wish.sub(_rgt);
+      if (keys['ArrowUp'])    _wish.add(_fwd);
+      if (keys['ArrowDown'])  _wish.sub(_fwd);
+      if (keys['ArrowRight']) _wish.add(_rgt);
+      if (keys['ArrowLeft'])  _wish.sub(_rgt);
     }
-    player.onGround = false;
+    const moving = _wish.lengthSq() > 0;
+    if (moving) _wish.normalize();
 
-    if (sprintActive && moving && player.onGround) fovTarget = SPRINT_FOV;
-  }
+    const forwardHeld = keys['KeyW'] || keys['ArrowUp'];
+    const forwardLock = (keys['KeyW'] && doubleLock.KeyW) || (keys['ArrowUp'] && doubleLock.ArrowUp);
 
-  tryMove(player.vel.x * dt, player.vel.y * dt, player.vel.z * dt);
+    const shift = !!keys['ShiftLeft'];
+    const ctrl  = !!keys['ControlLeft'];
 
-  if (!player.fly) {
-    player.onGround = collides(player.pos.x, player.pos.y - 0.03, player.pos.z);
-    if (player.onGround && player.vel.y < 0) player.vel.y = 0;
-  }
+    let fovTarget = BASE_FOV;
+    sprintActive = false;
 
-  /* ---- ШАГИ ---- */
-  if (!player.fly && player.onGround) {
-    const spd = Math.hypot(player.vel.x, player.vel.z);
-    if (spd > 0.4) {
-      stepAcc += spd * dt;
-      const need = sprintActive ? STEP_DIST_SPRINT : STEP_DIST_WALK;
-      if (stepAcc >= need) {
-        const fx = Math.floor(player.pos.x);
-        const fz = Math.floor(player.pos.z);
-        const fy = Math.floor(player.pos.y - 0.1);
-        let underId = 0;
-        if (fx >= 0 && fx < SX && fz >= 0 && fz < SZ && fy >= 0 && fy < SY) {
-          underId = world[IDX(fx, fy, fz)];
+    if (player.fly) {
+      const sp = ctrl ? 26 : 12;
+      player.vel.x = _wish.x * sp;
+      player.vel.z = _wish.z * sp;
+      let vy = 0;
+      if (keys['Space']) vy += sp;
+      if (shift)         vy -= sp;
+      player.vel.y = vy;
+      player.onGround = false;
+      stepAcc = 0;
+      fovTarget = ctrl ? FLY_FOV + 8 : FLY_FOV;
+    } else {
+      sprintActive = shift || ctrl || (forwardLock && forwardHeld && moving);
+      const sp = sprintActive ? 7.4 : 4.6;
+      const tx = _wish.x * sp, tz = _wish.z * sp;
+      const k = player.onGround ? 14 : 3.2;
+      const a = Math.min(1, k * dt);
+      player.vel.x += (tx - player.vel.x) * a;
+      player.vel.z += (tz - player.vel.z) * a;
+
+      player.vel.y -= GRAVITY * dt;
+      if (player.vel.y < -55) player.vel.y = -55;
+
+      if (locked && keys['Space'] && player.onGround) {
+        player.vel.y = JUMP;
+        player.onGround = false;
+        SFX.jump();
+      }
+      player.onGround = false;
+
+      if (sprintActive && moving && player.onGround) fovTarget = SPRINT_FOV;
+    }
+
+    tryMove(player.vel.x * dt, player.vel.y * dt, player.vel.z * dt);
+
+    if (!player.fly) {
+      player.onGround = collides(player.pos.x, player.pos.y - 0.03, player.pos.z);
+      if (player.onGround && player.vel.y < 0) player.vel.y = 0;
+    }
+
+    /* ---- урон от падения ---- */
+    if (!player.fly) {
+      if (!player.onGround) {
+        if (wasOnGround) {
+          highestAirY = player.pos.y;
         }
-        SFX.step(underId, sprintActive);
+        if (player.pos.y > highestAirY) highestAirY = player.pos.y;
+      } else {
+        if (!wasOnGround) {
+          const fallDist = highestAirY - player.pos.y;
+          if (fallDist > FALL_SAFE) {
+            const dmg = Math.floor(fallDist - FALL_SAFE);
+            if (dmg > 0) damagePlayer(dmg);
+          }
+        }
+      }
+    } else {
+      highestAirY = player.pos.y;
+    }
+    wasOnGround = player.onGround;
+
+    /* ---- шаги ---- */
+    if (!player.fly && player.onGround) {
+      const spd = Math.hypot(player.vel.x, player.vel.z);
+      if (spd > 0.4) {
+        stepAcc += spd * dt;
+        const need = sprintActive ? STEP_DIST_SPRINT : STEP_DIST_WALK;
+        if (stepAcc >= need) {
+          const fx = Math.floor(player.pos.x);
+          const fz = Math.floor(player.pos.z);
+          const fy = Math.floor(player.pos.y - 0.1);
+          let underId = 0;
+          if (fx >= 0 && fx < SX && fz >= 0 && fz < SZ && fy >= 0 && fy < SY) {
+            underId = world[IDX(fx, fy, fz)];
+          }
+          SFX.step(underId, sprintActive);
+          stepAcc = 0;
+        }
+      } else {
         stepAcc = 0;
       }
     } else {
       stepAcc = 0;
     }
+
+    /* ---- регенерация ---- */
+    if (hp > 0 && hp < MAX_HP) {
+      const sinceDmg = performance.now() - lastDamageTime;
+      if (sinceDmg > REGEN_DELAY_MS) {
+        regenAcc += dt;
+        if (regenAcc >= REGEN_INTERVAL_S) {
+          regenAcc = 0;
+          healPlayer(1);
+        }
+      }
+    }
+
+    /* ---- падение в бездну ---- */
+    if (player.pos.y < -30) {
+      damagePlayer(MAX_HP);
+    }
+
+    /* ---- плавное изменение FOV ---- */
+    const newFov = camera.fov + (fovTarget - camera.fov) * Math.min(1, 8 * dt);
+    if (Math.abs(newFov - camera.fov) > 0.01) {
+      camera.fov = newFov;
+      camera.updateProjectionMatrix();
+    }
   } else {
-    stepAcc = 0;
+    sprintActive = false;
   }
 
-  if (player.pos.y < -30) respawn();
-
-  /* ---- ПЛАВНОЕ ИЗМЕНЕНИЕ FOV ---- */
-  const newFov = camera.fov + (fovTarget - camera.fov) * Math.min(1, 8 * dt);
-  if (Math.abs(newFov - camera.fov) > 0.01) {
-    camera.fov = newFov;
-    camera.updateProjectionMatrix();
+  /* ---- мобы ---- */
+  try {
+    MOBS.update(dt);
+  } catch (e) {
+    console.error('mobs update error', e);
   }
 
   camera.position.set(player.pos.x, player.pos.y + EYE, player.pos.z);
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
 
-  currentTarget = locked ? raycastBlock() : null;
+  currentTarget = (locked && !dead) ? raycastBlock() : null;
   if (currentTarget) {
     hlBox.visible = true;
     hlBox.position.set(currentTarget.x + 0.5, currentTarget.y + 0.5, currentTarget.z + 0.5);
@@ -832,7 +1027,7 @@ function loop(now) {
 
   infoEl.textContent =
     'XYZ: ' + player.pos.x.toFixed(1) + ' / ' + player.pos.y.toFixed(1) + ' / ' + player.pos.z.toFixed(1) + '\n' +
-    'FPS: ' + fpsVal + status;
+    'HP: ' + hp + ' / ' + MAX_HP + '  ·  FPS: ' + fpsVal + '  ·  мобов: ' + MOBS.count() + status;
 
   renderer.render(scene, camera);
 }

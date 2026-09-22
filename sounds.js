@@ -4,7 +4,7 @@
    Публичный объект:
      window.SFX = {
        resume, break, place, step, jump, select,
-       flyOn, flyOff
+       flyOn, flyOff, hurt, death
      }
    ============================================================ */
 window.SFX = (function () {
@@ -226,19 +226,44 @@ function sndSelect() {
   playTone({ type: 'square', f0: 1000, f1: 1400, duration: 0.04, gain: 0.05 });
 }
 
-/* ---------- ВКЛЮЧЕНИЕ ПОЛЁТА: восходящий «вжух» ---------- */
 function sndFlyOn() {
   playNoise({ duration: 0.35, decay: 1.8, filterType: 'bandpass', freq: 300, freqEnd: 1400, Q: 1.4, gain: 0.13 });
   playTone({ type: 'sine', f0: 220, f1: 660, duration: 0.30, gain: 0.06, when: 0.01 });
   playTone({ type: 'triangle', f0: 440, f1: 880, duration: 0.22, gain: 0.035, when: 0.05 });
 }
 
-/* ---------- ВЫКЛЮЧЕНИЕ ПОЛЁТА: нисходящий + мягкая «посадка» ---------- */
 function sndFlyOff() {
   playNoise({ duration: 0.30, decay: 2.2, filterType: 'bandpass', freq: 1400, freqEnd: 320, Q: 1.4, gain: 0.12 });
   playTone({ type: 'sine', f0: 620, f1: 200, duration: 0.26, gain: 0.06 });
   playTone({ type: 'square', f0: 110, f1: 60, duration: 0.09, gain: 0.05, when: 0.20 });
   playNoise({ duration: 0.10, decay: 3, filterType: 'lowpass', freq: 900, freqEnd: 400, gain: 0.07, when: 0.20 });
+}
+
+/* ---------- УРОН: отрывистый "удар" с понижением высоты ----------
+   Классический "ух" из Minecraft — низкий короткий возглас
+   + резкий шумовой щелчок сверху.
+   --------------------------------------------------------------- */
+function sndHurt() {
+  // низкий тон, падающий вниз — «ой»
+  playTone({ type: 'square',   f0: 260, f1: 110, duration: 0.14, gain: 0.16 });
+  playTone({ type: 'triangle', f0: 200, f1: 90,  duration: 0.16, gain: 0.10, when: 0.005 });
+
+  // короткий шумовой «удар» — слышно как толчок
+  playNoise({ duration: 0.09, decay: 4.5, filterType: 'bandpass', freq: 800, freqEnd: 300, Q: 1.5, gain: 0.18 });
+  playNoise({ duration: 0.04, decay: 6.0, filterType: 'highpass', freq: 2400, gain: 0.05, when: 0.004 });
+}
+
+/* ---------- СМЕРТЬ: нисходящий "стон" + длинный шумовой распад ---------- */
+function sndDeath() {
+  // «прощальный» длинный тон
+  playTone({ type: 'square',   f0: 220, f1: 55,  duration: 0.75, gain: 0.14 });
+  playTone({ type: 'triangle', f0: 180, f1: 45,  duration: 0.85, gain: 0.10, when: 0.02 });
+  playTone({ type: 'sine',     f0: 110, f1: 40,  duration: 1.0,  gain: 0.07, when: 0.05 });
+
+  // шумовой хвост, растворяющийся в тишине
+  playNoise({ duration: 0.9, decay: 1.6, filterType: 'lowpass', freq: 1200, freqEnd: 200, gain: 0.16, when: 0.02 });
+  // тонкий высокий «вскрик» в начале, чтобы резко привлечь внимание
+  playNoise({ duration: 0.10, decay: 5, filterType: 'highpass', freq: 3200, gain: 0.08 });
 }
 
 return {
@@ -249,7 +274,9 @@ return {
   jump:   sndJump,
   select: sndSelect,
   flyOn:  sndFlyOn,
-  flyOff: sndFlyOff
+  flyOff: sndFlyOff,
+  hurt:   sndHurt,
+  death:  sndDeath
 };
 
 })();
