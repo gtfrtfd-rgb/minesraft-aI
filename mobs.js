@@ -1,19 +1,19 @@
 /* ============================================================
-   mobs.js — мирные мобы со своими текстурами, звуками, HP и AI.
+   mobs.js — мирные мобы с текстурами, звуками, HP и AI.
+
+   Модели приближены к оригинальному Minecraft:
+     - pig:    тело 0.625×0.5×1.0, голова-куб 0.5, пятачок, 4 ноги
+     - sheep:  пушистое тело 0.75×0.75×1.0, тёмная голова, 4 ноги
+     - cow:    тело 0.75×0.625×1.125, голова-куб с рогами, 4 ноги
+     - chicken: маленькое тело, клюв, серёжка, крылья, 2 ноги
 
    AI:
      - прыжок через блок высотой 1
-     - после прыжка вертикальный шаг кадра пропускается
      - горизонтальная скорость сохраняется в прыжке
-     - паника при уроне (убегает от игрока 4 секунды, x1.6 скорость)
-     - изредка «смотрит» на игрока, когда стоит рядом
+     - паника при уроне (убегает от игрока 4 сек, ×1.6 скорость)
+     - изредка «смотрит» на игрока рядом
      - детектор застревания
-     - случайные звуки каждые 8–16 секунд, если игрок рядом
-
-   HP:
-     - pig 10, sheep 8, cow 10, chicken 4
-     - при уроне — мигание и отбрасывание
-     - при смерти — звук и удаление
+     - случайные звуки каждые 8–16 секунд в радиусе 15 блоков
 
    Публичный объект: window.MOBS = {
      init(scene), update(dt, playerPos),
@@ -215,65 +215,108 @@ function makeBox(w, h, d, color, texKey) {
 
 /* ============================================================
    ОПРЕДЕЛЕНИЯ МОБОВ
+   Все размеры — в блоках (16 px = 1 блок).
+
    Части: [w, h, d, color, x, y, z, isLeg, texKey]
+
+   Голова и шея: голова входит задней гранью внутрь тела.
+   Голова смотрит в -Z (направление движения моба).
    ============================================================ */
 const MOB_TYPES = {
 
+  /* ---------- СВИНЬЯ ----------
+     Реальные размеры MC: тело 10×8×16 px, голова 8×8×8, ноги 4×6×4 */
   pig: {
-    h: 0.95, r: 0.35, speed: 1.4, hp: 10,
+    h: 0.9, r: 0.42, speed: 1.4, hp: 10,
     parts: [
-      [0.9,  0.55, 0.5,  0xEE9999,  0,    0.55,  0,     false, 'pigBody'],
-      [0.45, 0.45, 0.4,  0xEE9999,  0,    0.75, -0.30,  false, 'pigHead'],
-      [0.22, 0.14, 0.08, 0xCC6677,  0,    0.66, -0.53,  false, 'pigSnout'],
-      [0.07, 0.07, 0.04, 0x111111, -0.13, 0.86, -0.51,  false, null],
-      [0.07, 0.07, 0.04, 0x111111,  0.13, 0.86, -0.51,  false, null],
-      [0.15, 0.5,  0.15, 0xCC6677, -0.30, 0.25, -0.15,  true,  'pigLeg'],
-      [0.15, 0.5,  0.15, 0xCC6677,  0.30, 0.25, -0.15,  true,  'pigLeg'],
-      [0.15, 0.5,  0.15, 0xCC6677, -0.30, 0.25,  0.15,  true,  'pigLeg'],
-      [0.15, 0.5,  0.15, 0xCC6677,  0.30, 0.25,  0.15,  true,  'pigLeg']
+      // тело: 0.625 × 0.5 × 1.0 — длинное по Z
+      [0.625, 0.5,   1.0,   0xEE9999,  0,    0.625,  0,     false, 'pigBody'],
+      // голова: куб 0.5 × 0.5 × 0.5, спереди тела, чуть выше центра
+      [0.5,   0.5,   0.5,   0xEE9999,  0,    0.75,  -0.55,  false, 'pigHead'],
+      // пятачок: спереди головы
+      [0.25,  0.2,   0.1,   0xCC6677,  0,    0.66,  -0.85,  false, 'pigSnout'],
+      // ноздри (2 тёмные точки на пятачке)
+      [0.05,  0.05,  0.02,  0x551122, -0.06, 0.66,  -0.91,  false, null],
+      [0.05,  0.05,  0.02,  0x551122,  0.06, 0.66,  -0.91,  false, null],
+      // глаза (по бокам головы, на передней грани)
+      [0.08,  0.08,  0.02,  0x111111, -0.15, 0.875, -0.81,  false, null],
+      [0.08,  0.08,  0.02,  0x111111,  0.15, 0.875, -0.81,  false, null],
+      // уши: маленькие кубики на верхних углах головы
+      [0.1,   0.1,   0.08,  0xCC6677, -0.15, 1.02,  -0.5,   false, null],
+      [0.1,   0.1,   0.08,  0xCC6677,  0.15, 1.02,  -0.5,   false, null],
+      // 4 ноги: 0.25 × 0.375 × 0.25
+      [0.25,  0.375, 0.25,  0xCC6677, -0.19, 0.1875, -0.33, true,  'pigLeg'],
+      [0.25,  0.375, 0.25,  0xCC6677,  0.19, 0.1875, -0.33, true,  'pigLeg'],
+      [0.25,  0.375, 0.25,  0xCC6677, -0.19, 0.1875,  0.33, true,  'pigLeg'],
+      [0.25,  0.375, 0.25,  0xCC6677,  0.19, 0.1875,  0.33, true,  'pigLeg']
     ]
   },
 
+  /* ---------- ОВЦА ----------
+     Пушистое тело побольше, голова — маленький тёмный куб впереди */
   sheep: {
-    h: 1.0, r: 0.35, speed: 1.2, hp: 8,
+    h: 1.25, r: 0.42, speed: 1.2, hp: 8,
     parts: [
-      [0.9,  0.7,  0.6,  0xEEEEEE,  0,    0.60,  0,     false, 'sheepWool'],
-      [0.4,  0.4,  0.4,  0x444444,  0,    0.80, -0.35,  false, 'sheepFace'],
-      [0.09, 0.09, 0.04, 0xFFFFFF, -0.10, 0.90, -0.56,  false, null],
-      [0.09, 0.09, 0.04, 0xFFFFFF,  0.10, 0.90, -0.56,  false, null],
-      [0.13, 0.5,  0.13, 0x333333, -0.30, 0.25, -0.20,  true,  'sheepLeg'],
-      [0.13, 0.5,  0.13, 0x333333,  0.30, 0.25, -0.20,  true,  'sheepLeg'],
-      [0.13, 0.5,  0.13, 0x333333, -0.30, 0.25,  0.20,  true,  'sheepLeg'],
-      [0.13, 0.5,  0.13, 0x333333,  0.30, 0.25,  0.20,  true,  'sheepLeg']
+      // тело (шерсть): 0.75 × 0.75 × 1.0
+      [0.75,  0.75,  1.0,   0xEEEEEE,  0,    0.875,  0,     false, 'sheepWool'],
+      // голова: тёмная, 0.4 × 0.5 × 0.4
+      [0.4,   0.5,   0.4,   0x444444,  0,    0.875, -0.7,   false, 'sheepFace'],
+      // глаза (белые точки на морде)
+      [0.06,  0.06,  0.02,  0xFFFFFF, -0.1,  0.95,  -0.91,  false, null],
+      [0.06,  0.06,  0.02,  0xFFFFFF,  0.1,  0.95,  -0.91,  false, null],
+      // 4 ноги: 0.25 × 0.5 × 0.25
+      [0.25,  0.5,   0.25,  0x333333, -0.2,  0.25,  -0.3,   true,  'sheepLeg'],
+      [0.25,  0.5,   0.25,  0x333333,  0.2,  0.25,  -0.3,   true,  'sheepLeg'],
+      [0.25,  0.5,   0.25,  0x333333, -0.2,  0.25,   0.3,   true,  'sheepLeg'],
+      [0.25,  0.5,   0.25,  0x333333,  0.2,  0.25,   0.3,   true,  'sheepLeg']
     ]
   },
 
+  /* ---------- КОРОВА ----------
+     Длинное тело, высокие ноги, кубическая голова с рогами */
   cow: {
-    h: 1.2, r: 0.42, speed: 1.2, hp: 10,
+    h: 1.45, r: 0.45, speed: 1.2, hp: 10,
     parts: [
-      [1.1,  0.7,  0.65, 0x664422,  0,    0.65,  0,     false, 'cowHide'],
-      [0.5,  0.5,  0.5,  0x664422,  0,    0.85, -0.40,  false, 'cowFace'],
-      [0.08, 0.08, 0.05, 0x000000, -0.15, 0.95, -0.66,  false, null],
-      [0.08, 0.08, 0.05, 0x000000,  0.15, 0.95, -0.66,  false, null],
-      [0.08, 0.16, 0.08, 0xF0F0D0, -0.20, 1.18, -0.40,  false, 'cowHorn'],
-      [0.08, 0.16, 0.08, 0xF0F0D0,  0.20, 1.18, -0.40,  false, 'cowHorn'],
-      [0.15, 0.55, 0.15, 0x442211, -0.35, 0.275, -0.20, true,  'cowLeg'],
-      [0.15, 0.55, 0.15, 0x442211,  0.35, 0.275, -0.20, true,  'cowLeg'],
-      [0.15, 0.55, 0.15, 0x442211, -0.35, 0.275,  0.20, true,  'cowLeg'],
-      [0.15, 0.55, 0.15, 0x442211,  0.35, 0.275,  0.20, true,  'cowLeg']
+      // тело: 0.75 × 0.625 × 1.125
+      [0.75,  0.625, 1.125, 0x664422,  0,    1.0625,  0,     false, 'cowHide'],
+      // голова: куб 0.5 × 0.5 × 0.5
+      [0.5,   0.5,   0.5,   0x664422,  0,    1.0625, -0.7,   false, 'cowFace'],
+      // рога: на верхних углах головы
+      [0.1,   0.15,  0.1,   0xF0F0D0, -0.15, 1.38,   -0.7,   false, 'cowHorn'],
+      [0.1,   0.15,  0.1,   0xF0F0D0,  0.15, 1.38,   -0.7,   false, 'cowHorn'],
+      // глаза
+      [0.07,  0.07,  0.02,  0x000000, -0.15, 1.15,   -0.96,  false, null],
+      [0.07,  0.07,  0.02,  0x000000,  0.15, 1.15,   -0.96,  false, null],
+      // 4 ноги: 0.25 × 0.75 × 0.25 (высокие)
+      [0.25,  0.75,  0.25,  0x442211, -0.25, 0.375,  -0.4,   true,  'cowLeg'],
+      [0.25,  0.75,  0.25,  0x442211,  0.25, 0.375,  -0.4,   true,  'cowLeg'],
+      [0.25,  0.75,  0.25,  0x442211, -0.25, 0.375,   0.4,   true,  'cowLeg'],
+      [0.25,  0.75,  0.25,  0x442211,  0.25, 0.375,   0.4,   true,  'cowLeg']
     ]
   },
 
+  /* ---------- КУРИЦА ----------
+     Маленькое тело, клюв, серёжка, два крыла, две тонкие ноги */
   chicken: {
-    h: 0.6, r: 0.20, speed: 2.0, hp: 4,
+    h: 0.7, r: 0.22, speed: 2.0, hp: 4,
     parts: [
-      [0.40, 0.40, 0.40, 0xFFFFFF,  0,    0.35,  0,     false, 'chickenBody'],
-      [0.28, 0.28, 0.28, 0xFFFFFF,  0,    0.62, -0.22,  false, 'chickenBody'],
-      [0.10, 0.08, 0.14, 0xE8A020,  0,    0.56, -0.42,  false, 'chickenBeak'],
-      [0.06, 0.06, 0.04, 0x000000, -0.08, 0.68, -0.37,  false, null],
-      [0.06, 0.06, 0.04, 0x000000,  0.08, 0.68, -0.37,  false, null],
-      [0.10, 0.18, 0.10, 0xE8A020, -0.10, 0.09,  0.05,  true,  'chickenLeg'],
-      [0.10, 0.18, 0.10, 0xE8A020,  0.10, 0.09,  0.05,  true,  'chickenLeg']
+      // тело: 0.3 × 0.4 × 0.4
+      [0.3,   0.4,   0.4,   0xFFFFFF,  0,    0.45,   0,     false, 'chickenBody'],
+      // голова: 0.2 × 0.3 × 0.2
+      [0.2,   0.3,   0.2,   0xFFFFFF,  0,    0.75,  -0.28,  false, 'chickenBody'],
+      // клюв
+      [0.15,  0.1,   0.15,  0xE8A020,  0,    0.7,   -0.45,  false, 'chickenBeak'],
+      // серёжка (красная снизу клюва)
+      [0.1,   0.08,  0.04,  0xCC2222,  0,    0.6,   -0.45,  false, null],
+      // глаза
+      [0.05,  0.05,  0.02,  0x000000, -0.06, 0.8,   -0.39,  false, null],
+      [0.05,  0.05,  0.02,  0x000000,  0.06, 0.8,   -0.39,  false, null],
+      // крылья (по бокам тела)
+      [0.05,  0.25,  0.3,   0xEEEEEE, -0.175, 0.45,  0,     false, 'chickenBody'],
+      [0.05,  0.25,  0.3,   0xEEEEEE,  0.175, 0.45,  0,     false, 'chickenBody'],
+      // 2 ноги
+      [0.08,  0.25,  0.08,  0xE8A020, -0.08, 0.125,  0.05,  true,  'chickenLeg'],
+      [0.08,  0.25,  0.08,  0xE8A020,  0.08, 0.125,  0.05,  true,  'chickenLeg']
     ]
   }
 
@@ -325,7 +368,6 @@ function createMob(type, x, y, z, yaw) {
     avoidCooldown: 0,
     jumpCooldown: 0,
     soundTimer: 2 + Math.random() * 6,
-    // --- HP и состояния ---
     hp: def.hp,
     maxHp: def.hp,
     dead: false,
@@ -431,7 +473,7 @@ function reactToWall(mob) {
 function maybePlaySound(mob) {
   if (!playerPos) return;
   if (!window.SFX) return;
-  if (mob.panicTimer > 0) return;   // в панике звук — только от боли
+  if (mob.panicTimer > 0) return;
 
   const dx = mob.pos.x - playerPos.x;
   const dy = mob.pos.y - playerPos.y;
@@ -448,8 +490,7 @@ function maybePlaySound(mob) {
 }
 
 /* ============================================================
-   НАНЕСЕНИЕ УРОНА (публичный API)
-   Возвращает true, если моб умер.
+   НАНЕСЕНИЕ УРОНА
    ============================================================ */
 function hitMob(mob, damage, fromX, fromZ) {
   if (!mob || mob.dead) return false;
@@ -458,7 +499,6 @@ function hitMob(mob, damage, fromX, fromZ) {
   mob.panicTimer = PANIC_DURATION;
   mob.walking = true;
 
-  // отбрасывание от источника удара
   const dx = mob.pos.x - fromX;
   const dz = mob.pos.z - fromZ;
   const len = Math.hypot(dx, dz);
@@ -495,9 +535,7 @@ function raycastMob(origin, dir, maxDist) {
     const minZ = m.pos.z - r, maxZ = m.pos.z + r;
 
     let tmin = 0, tmax = bestT;
-    let ok = true;
 
-    // X
     if (Math.abs(dir.x) < 1e-8) {
       if (origin.x < minX || origin.x > maxX) continue;
     } else {
@@ -508,7 +546,6 @@ function raycastMob(origin, dir, maxDist) {
       if (t2 < tmax) tmax = t2;
       if (tmin > tmax) continue;
     }
-    // Y
     if (Math.abs(dir.y) < 1e-8) {
       if (origin.y < minY || origin.y > maxY) continue;
     } else {
@@ -519,7 +556,6 @@ function raycastMob(origin, dir, maxDist) {
       if (t2 < tmax) tmax = t2;
       if (tmin > tmax) continue;
     }
-    // Z
     if (Math.abs(dir.z) < 1e-8) {
       if (origin.z < minZ || origin.z > maxZ) continue;
     } else {
@@ -546,13 +582,11 @@ function raycastMob(origin, dir, maxDist) {
 function updateMob(mob, dt) {
   const def = mob.def;
 
-  // если мёртв — не двигаем, но мигаем вниз
   if (mob.dead) {
-    mob.group.visible = false;   // уже удаляется, скроем
+    mob.group.visible = false;
     return;
   }
 
-  // --- мигание при уроне ---
   if (mob.hurtTimer > 0) {
     mob.hurtTimer -= dt;
     mob.group.visible = (Math.floor(mob.hurtTimer * 30) % 2 === 0);
@@ -562,20 +596,18 @@ function updateMob(mob, dt) {
   if (mob.avoidCooldown > 0) mob.avoidCooldown -= dt;
   if (mob.jumpCooldown > 0)  mob.jumpCooldown  -= dt;
 
-  // --- звук по таймеру ---
   mob.soundTimer -= dt;
   if (mob.soundTimer <= 0) {
     mob.soundTimer = SOUND_INTERVAL_MIN + Math.random() * (SOUND_INTERVAL_MAX - SOUND_INTERVAL_MIN);
     maybePlaySound(mob);
   }
 
-  /* ---------- PANIC: убегает от игрока ---------- */
+  /* ---------- PANIC ---------- */
   if (mob.panicTimer > 0) {
     mob.panicTimer -= dt;
     if (playerPos) {
       const dx = mob.pos.x - playerPos.x;
       const dz = mob.pos.z - playerPos.z;
-      // Направление движения = (dx, dz). yaw = atan2(-dx, -dz).
       mob.targetYaw = Math.atan2(-dx, -dz);
       mob.walking = true;
     }
@@ -593,7 +625,7 @@ function updateMob(mob, dt) {
       }
     }
 
-    /* ---------- look-at-player: иногда оборачивается к игроку рядом ---------- */
+    /* ---------- look-at-player ---------- */
     if (!mob.walking && playerPos) {
       mob.lookAtCooldown -= dt;
       if (mob.lookAtCooldown <= 0) {
@@ -601,21 +633,20 @@ function updateMob(mob, dt) {
         const dx = playerPos.x - mob.pos.x;
         const dz = playerPos.z - mob.pos.z;
         const d2 = dx * dx + dz * dz;
-        if (d2 < 36) {   // 6 блоков
-          // Направление движения = (dx, dz). Смотрит В СТОРОНУ игрока.
+        if (d2 < 36) {
           mob.targetYaw = Math.atan2(-dx, -dz);
         }
       }
     }
   }
 
-  // --- плавный поворот ---
+  /* ---------- плавный поворот ---------- */
   let dyaw = mob.targetYaw - mob.yaw;
   while (dyaw >  Math.PI) dyaw -= Math.PI * 2;
   while (dyaw < -Math.PI) dyaw += Math.PI * 2;
   mob.yaw += dyaw * Math.min(1, 5 * dt);
 
-  // --- горизонтальная скорость: сохраняется и в прыжке ---
+  /* ---------- горизонтальная скорость ---------- */
   const speedMult = mob.panicTimer > 0 ? PANIC_SPEED_MULT : 1.0;
   let vx = 0, vz = 0;
   if (mob.walking) {
@@ -623,14 +654,12 @@ function updateMob(mob, dt) {
     vz = -Math.cos(mob.yaw) * def.speed * speedMult;
   }
 
-  // --- гравитация ---
+  /* ---------- гравитация ---------- */
   mob.vel.y -= GRAVITY * dt;
   if (mob.vel.y < -30) mob.vel.y = -30;
 
-  // --- перемещение ---
-  // сохраняем скорость для прыжка/knockback
+  /* ---------- перемещение ---------- */
   const prevVx = mob.vel.x, prevVz = mob.vel.z;
-  // суммарное смещение = (knockback + AI-движение), затем затухание knockback
   mob.vel.x = prevVx * Math.max(0, 1 - 4 * dt);
   mob.vel.z = prevVz * Math.max(0, 1 - 4 * dt);
   const totalVx = vx + mob.vel.x;
@@ -638,7 +667,7 @@ function updateMob(mob, dt) {
 
   mobMove(mob, totalVx * dt, mob.vel.y * dt, totalVz * dt);
 
-  // --- земля под ногами ---
+  /* ---------- земля ---------- */
   mob.onGround = mobCollides(mob.pos.x, mob.pos.y - 0.05, mob.pos.z, def.r, def.h);
   if (mob.onGround && mob.vel.y < 0) mob.vel.y = 0;
 
@@ -665,23 +694,23 @@ function updateMob(mob, dt) {
   mob.lastX = mob.pos.x;
   mob.lastZ = mob.pos.z;
 
-  // --- анимация ходьбы ---
+  /* ---------- анимация ходьбы ---------- */
   if (mob.walking && mob.onGround) {
     mob.walkPhase += dt * 8 * speedMult;
   } else {
     mob.walkPhase *= 0.9;
   }
-  const swing = Math.sin(mob.walkPhase) * 0.06;
+  const swing = Math.sin(mob.walkPhase) * 0.07;
   for (let i = 0; i < mob.legs.length; i++) {
     const s = (i % 2 === 0) ? swing : -swing;
     mob.legs[i].mesh.position.y = mob.legs[i].baseY + s;
   }
 
-  // --- трансформ ---
+  /* ---------- трансформ ---------- */
   mob.group.position.copy(mob.pos);
   mob.group.rotation.y = mob.yaw;
 
-  // --- страховка от падения в бездну ---
+  /* ---------- спасательный телепорт ---------- */
   if (mob.pos.y < -10) {
     const ix = Math.floor(mob.pos.x), iz = Math.floor(mob.pos.z);
     if (ix >= 0 && ix < SX && iz >= 0 && iz < SZ) {
@@ -790,7 +819,6 @@ function update(dt, pPos) {
   if (pPos) playerPos = pPos;
   for (let i = 0; i < mobs.length; i++) updateMob(mobs[i], dt);
 
-  // удаляем мёртвых
   for (let i = mobs.length - 1; i >= 0; i--) {
     if (mobs[i].dead) {
       scene.remove(mobs[i].group);
