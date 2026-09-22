@@ -8,12 +8,10 @@
   "engines": {
     "node": ">=18.0.0"
   },
-    "scripts": {
+  "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
     "test": "node --test test/smoke.test.js"
-  },
-
   },
   "keywords": ["minecraft", "voxel", "three.js", "webgl", "game"],
   "license": "MIT"
