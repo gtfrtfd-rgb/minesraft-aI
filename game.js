@@ -8,11 +8,12 @@
    + здоровье игрока (HP, урон от падения, регенерация, смерть)
    + 10 слотов хотбара, включая песок (клавиша 0)
    + ЛКМ: удар по мобу (урон, отбрасывание, паника)
+   + облака на небе: 26 разных облаков с 8 текстурами
+   + биомы и увеличенный мир (256×256×48)
    ============================================================ */
 (function () {
 'use strict';
 
-/* ---------- аварийный экран, если что-то не загрузилось ---------- */
 function fatal(msg) {
   const el = document.getElementById('loading');
   if (el) {
@@ -47,7 +48,6 @@ const rebuildAround = MC.rebuildAround, rebuildAll = MC.rebuildAll;
 
 const GAME_VERSION = 'V2.0.2';
 
-/* ---------- безопасная обёртка SFX ---------- */
 const SFX = (function () {
   const s = window.SFX;
   if (s) {
@@ -65,7 +65,6 @@ const SFX = (function () {
   };
 })();
 
-/* ---------- безопасная обёртка MOBS ---------- */
 const MOBS = (function () {
   const m = window.MOBS;
   if (m && m.raycast && m.hit) return m;
@@ -93,7 +92,7 @@ const FLY_FOV    = 80;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
-scene.fog = new THREE.Fog(0x87ceeb, 70, 150);
+scene.fog = new THREE.Fog(0x87ceeb, 90, 220);
 scene.add(chunkGroup);
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -101,7 +100,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 340);
+const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 450);
 camera.rotation.order = 'YXZ';
 
 window.addEventListener('resize', () => {
@@ -118,6 +117,129 @@ const hlBox = new THREE.LineSegments(
 );
 hlBox.visible = false;
 scene.add(hlBox);
+
+/* ============================================================
+   1.0. ОБЛАКА — набор разных облаков
+   ============================================================ */
+const clouds = (function makeClouds() {
+  const group = new THREE.Group();
+  group.renderOrder = -1;
+
+  function makeCloudTexture(seed) {
+    const S = 64;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = S;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(S, S);
+    const d = img.data;
+
+    let sd = seed >>> 0;
+    function rnd() {
+      sd = (Math.imul(sd, 1103515245) + 12345) & 0x7fffffff;
+      return sd / 0x7fffffff;
+    }
+
+    const nb = 5 + Math.floor(rnd() * 5);
+    const blobs = [];
+    for (let i = 0; i < nb; i++) {
+      blobs.push({
+        x: 0.5 + (rnd() - 0.5) * 0.55,
+        y: 0.5 + (rnd() - 0.5) * 0.55,
+        r: 0.10 + rnd() * 0.18
+      });
+    }
+
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const u = x / S, v = y / S;
+        const dx = u - 0.5, dy = v - 0.5;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const mask = 1 - Math.max(0, (dist - 0.34) / 0.14);
+        if (mask <= 0) continue;
+
+        let val = 0;
+        for (let i = 0; i < blobs.length; i++) {
+          const bl = blobs[i];
+          const ddx = u - bl.x, ddy = v - bl.y;
+          const dd = Math.sqrt(ddx * ddx + ddy * ddy);
+          const t = 1 - dd / bl.r;
+          if (t > val) val = t;
+        }
+        val = Math.max(0, Math.min(1, val * mask));
+
+        const o = (y * S + x) * 4;
+        if (val > 0.55) {
+          d[o] = 255; d[o + 1] = 255; d[o + 2] = 255;
+          d[o + 3] = Math.floor(220 + (val - 0.55) * 60);
+        } else if (val > 0.30) {
+          d[o] = 255; d[o + 1] = 255; d[o + 2] = 255;
+          d[o + 3] = Math.floor(((val - 0.30) / 0.25) * 200);
+        } else {
+          d[o] = 0; d[o + 1] = 0; d[o + 2] = 0; d[o + 3] = 0;
+        }
+      }
+    }
+
+    ctx.putImageData(img, 0, 0);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+  }
+
+  const textures = [];
+  for (let i = 0; i < 8; i++) textures.push(makeCloudTexture(1000 + i * 137));
+  const materials = textures.map(function (t) {
+    return new THREE.MeshBasicMaterial({
+      map: t,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      fog: false
+    });
+  });
+
+  const SPREAD = 420;
+  const COUNT = 26;
+
+  let s2 = 424242;
+  function rnd2() { s2 = (Math.imul(s2, 1103515245) + 12345) & 0x7fffffff; return s2 / 0x7fffffff; }
+
+  const list = [];
+  for (let i = 0; i < COUNT; i++) {
+    const mat = materials[Math.floor(rnd2() * materials.length)];
+    const size = 40 + rnd2() * 60;
+    const geo = new THREE.PlaneGeometry(size, size);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.set(-Math.PI / 2, 0, rnd2() * Math.PI * 2);
+    mesh.position.set(
+      (rnd2() - 0.5) * SPREAD * 2,
+      90 + rnd2() * 25,
+      (rnd2() - 0.5) * SPREAD * 2
+    );
+    mesh.frustumCulled = false;
+    group.add(mesh);
+
+    list.push({ mesh: mesh, speed: 0.4 + rnd2() * 0.8 });
+  }
+
+  scene.add(group);
+  return { group: group, list: list, spread: SPREAD };
+})();
+
+function updateClouds(dt, pPos) {
+  clouds.group.position.x = pPos.x;
+  clouds.group.position.z = pPos.z;
+
+  const S = clouds.spread;
+  for (let i = 0; i < clouds.list.length; i++) {
+    const c = clouds.list[i];
+    c.mesh.position.x += c.speed * dt;
+    if (c.mesh.position.x > S) c.mesh.position.x -= S * 2;
+  }
+}
 
 /* ============================================================
    1.1. НЕВИДИМЫЕ БАРЬЕРЫ ПО КРАЯМ МИРА
@@ -356,7 +478,7 @@ const ATTACK_COOLDOWN = 0.4;
 let attackTimer = 0;
 
 const player = {
-  pos: new THREE.Vector3(SX / 2 + 0.5, 30, SZ / 2 + 0.5),
+  pos: new THREE.Vector3(SX / 2 + 0.5, 40, SZ / 2 + 0.5),
   vel: new THREE.Vector3(),
   onGround: false,
   fly: false
@@ -743,7 +865,7 @@ function newWorld() {
   yaw = 0; pitch = 0;
   hp = MAX_HP;
   refreshHearts();
-  MOBS.spawnInitial(30);
+  MOBS.spawnInitial(40);
   saveGame();
   showHint('Создан новый мир');
 }
@@ -776,7 +898,7 @@ function buildChunksAsync(onProgress, onDone) {
 
   function step() {
     const t0 = performance.now();
-    while (cz < CHZ && (performance.now() - t0) < 12) {
+    while (cz < CHZ && (performance.now() - t0) < 14) {
       buildChunk(cx, cz);
       built++;
       cx++;
@@ -821,7 +943,7 @@ function buildChunksAsync(onProgress, onDone) {
           function () {
             if (MOBS.count() === 0) {
               setLoadingText('Спавн мобов…');
-              MOBS.spawnInitial(30);
+              MOBS.spawnInitial(40);
             }
             wasOnGround = true;
             highestAirY = player.pos.y;
@@ -856,6 +978,8 @@ let sprintActive = false;
 
 function update(dt) {
   if (attackTimer > 0) attackTimer -= dt;
+
+  updateClouds(dt, player.pos);
 
   if (!dead) {
     _fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
@@ -923,7 +1047,6 @@ function update(dt) {
       if (player.onGround && player.vel.y < 0) player.vel.y = 0;
     }
 
-    /* ---- урон от падения ---- */
     if (!player.fly) {
       if (!player.onGround) {
         if (wasOnGround) {
@@ -944,7 +1067,6 @@ function update(dt) {
     }
     wasOnGround = player.onGround;
 
-    /* ---- шаги ---- */
     if (!player.fly && player.onGround) {
       const spd = Math.hypot(player.vel.x, player.vel.z);
       if (spd > 0.4) {
@@ -968,7 +1090,6 @@ function update(dt) {
       stepAcc = 0;
     }
 
-    /* ---- регенерация ---- */
     if (hp > 0 && hp < MAX_HP) {
       const sinceDmg = performance.now() - lastDamageTime;
       if (sinceDmg > REGEN_DELAY_MS) {
@@ -980,12 +1101,10 @@ function update(dt) {
       }
     }
 
-    /* ---- падение в бездну ---- */
     if (player.pos.y < -30) {
       damagePlayer(MAX_HP);
     }
 
-    /* ---- плавное изменение FOV ---- */
     const newFov = camera.fov + (fovTarget - camera.fov) * Math.min(1, 8 * dt);
     if (Math.abs(newFov - camera.fov) > 0.01) {
       camera.fov = newFov;
@@ -995,7 +1114,6 @@ function update(dt) {
     sprintActive = false;
   }
 
-  /* ---- мобы (передаём позицию игрока для звуков) ---- */
   try {
     MOBS.update(dt, player.pos);
   } catch (e) {
@@ -1014,7 +1132,6 @@ function update(dt) {
     hlBox.visible = false;
   }
 
-  /* ---- атака мобов по удержанию ЛКМ ---- */
   if (locked && mouseDown[0] && !dead) {
     if (tryAttackMob()) {
       if (breaking.active) stopBreaking();
