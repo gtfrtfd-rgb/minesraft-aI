@@ -1,16 +1,15 @@
 /* ============================================================
-   mobs.js — мирные мобы (свинья, овца, корова, курица)
-   Простые воксельные модели + AI блуждания + анимация ходьбы.
+   mobs.js — мирные мобы со своими текстурами и звуками.
 
    AI:
-     - прыжок через блок высотой 1 при столкновении (как в Minecraft)
-     - после прыжка вертикальное движение в ЭТОМ кадре пропускается,
-       чтобы не сбросить только что установленную скорость
+     - прыжок через блок высотой 1 при столкновении
+     - после прыжка вертикальный шаг кадра пропускается
      - горизонтальная скорость сохраняется в прыжке
      - детектор застревания
+     - случайные звуки каждые 8–16 секунд, если игрок рядом
 
    Публичный объект: window.MOBS = {
-     init(scene), update(dt),
+     init(scene), update(dt, playerPos),
      spawnInitial(count), spawnAt(type, x, y, z),
      clear(), serialize(), deserialize(arr),
      count()
@@ -38,89 +37,257 @@ const isSolid = MC.isSolid, highestAt = MC.highestAt;
 let scene = null;
 const mobs = [];
 
+let playerPos = null;
+let lastMobSoundTime = -99999;
+
 const GRAVITY = 28;
 const JUMP_VELOCITY = 8.6;
+const SOUND_MIN_DIST2 = 15 * 15;
+const SOUND_INTERVAL_MIN = 8;
+const SOUND_INTERVAL_MAX = 16;
 
-/* ---------- утилита: бокс с простым затенением граней ---------- */
-function makeBox(w, h, d, color) {
-  const base   = new THREE.Color(color);
-  const top    = base.clone().multiplyScalar(1.15);
-  const bottom = base.clone().multiplyScalar(0.55);
-  const px     = base.clone().multiplyScalar(1.00);
-  const nx     = base.clone().multiplyScalar(0.80);
-  const pz     = base.clone().multiplyScalar(0.90);
-  const nz     = base.clone().multiplyScalar(0.90);
-  const mats = [
-    new THREE.MeshBasicMaterial({ color: px, fog: true }),
-    new THREE.MeshBasicMaterial({ color: nx, fog: true }),
-    new THREE.MeshBasicMaterial({ color: top, fog: true }),
-    new THREE.MeshBasicMaterial({ color: bottom, fog: true }),
-    new THREE.MeshBasicMaterial({ color: pz, fog: true }),
-    new THREE.MeshBasicMaterial({ color: nz, fog: true })
-  ];
+/* ============================================================
+   ПРОЦЕДУРНЫЕ ТЕКСТУРЫ МОБОВ (16×16, пиксельные)
+   ============================================================ */
+function cl(v) { return v < 0 ? 0 : v > 255 ? 255 : (v | 0); }
+function fract(v) { return v - Math.floor(v); }
+function hash01(x, y, s) {
+  return fract(Math.sin(x * 127.1 + y * 311.7 + s * 74.7) * 43758.5453123);
+}
+
+function newTexCanvas(px) {
+  const c = document.createElement('canvas');
+  c.width = c.height = px;
+  return c;
+}
+
+function finalizeTex(canvas) {
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
+function makeTex(px, base, variation, blobs, seed) {
+  const c = newTexCanvas(px);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(px, px);
+  const d = img.data;
+  for (let y = 0; y < px; y++) {
+    for (let x = 0; x < px; x++) {
+      let r = base[0], g = base[1], b = base[2];
+
+      const n = hash01(x, y, seed);
+      const dv = (n - 0.5) * variation;
+      r += dv; g += dv; b += dv;
+
+      if (blobs && blobs.length) {
+        for (let i = 0; i < blobs.length; i++) {
+          const bl = blobs[i];
+          const scale = bl.scale || 4;
+          const bx = Math.floor(x / scale), by = Math.floor(y / scale);
+          const nb = hash01(bx, by, seed + i * 17);
+          if (nb < bl.chance) {
+            r = bl.color[0]; g = bl.color[1]; b = bl.color[2];
+          }
+        }
+      }
+
+      const o = (y * px + x) * 4;
+      d[o] = cl(r); d[o + 1] = cl(g); d[o + 2] = cl(b); d[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return finalizeTex(c);
+}
+
+function makePigSnoutTex() {
+  const px = 16;
+  const c = newTexCanvas(px);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(px, px);
+  const d = img.data;
+  for (let y = 0; y < px; y++) {
+    for (let x = 0; x < px; x++) {
+      let r = 204, g = 106, b = 122;
+      const n = (hash01(x, y, 41) - 0.5) * 20;
+      r += n; g += n; b += n;
+      const cy = Math.abs(y - 8);
+      if (cy <= 2 && (Math.abs(x - 5) <= 1 || Math.abs(x - 10) <= 1)) {
+        r = 55; g = 22; b = 32;
+      }
+      const o = (y * px + x) * 4;
+      d[o] = cl(r); d[o + 1] = cl(g); d[o + 2] = cl(b); d[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return finalizeTex(c);
+}
+
+function makeCowFaceTex() {
+  const px = 16;
+  const c = newTexCanvas(px);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(px, px);
+  const d = img.data;
+  for (let y = 0; y < px; y++) {
+    for (let x = 0; x < px; x++) {
+      let r = 102, g = 68, b = 34;
+      const n = (hash01(x, y, 91) - 0.5) * 22;
+      r += n; g += n; b += n;
+      if (Math.abs(x - 8) <= 1 && y > 2) {
+        r = 235; g = 232; b = 226;
+      }
+      const o = (y * px + x) * 4;
+      d[o] = cl(r); d[o + 1] = cl(g); d[o + 2] = cl(b); d[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return finalizeTex(c);
+}
+
+const MOB_TEXTURES = {
+  pigBody:  makeTex(16, [238, 156, 156], 22, [{ chance: 0.10, color: [220, 132, 132], scale: 3 }], 1),
+  pigHead:  makeTex(16, [238, 156, 156], 22, [{ chance: 0.06, color: [216, 122, 128], scale: 4 }], 2),
+  pigSnout: makePigSnoutTex(),
+  pigLeg:   makeTex(16, [204, 106, 122], 22, null, 4),
+
+  sheepWool: makeTex(16, [235, 235, 235], 34, [
+    { chance: 0.18, color: [218, 218, 218], scale: 2 },
+    { chance: 0.06, color: [200, 200, 200], scale: 3 }
+  ], 5),
+  sheepFace: makeTex(16, [68, 68, 68], 20, null, 6),
+  sheepLeg:  makeTex(16, [51, 51, 51], 22, null, 7),
+
+  cowHide: makeTex(16, [110, 70, 35], 24, [
+    { chance: 0.30, color: [240, 235, 225], scale: 3 }
+  ], 8),
+  cowFace: makeCowFaceTex(),
+  cowHorn: makeTex(16, [240, 240, 208], 14, null, 10),
+  cowLeg:  makeTex(16, [68, 34, 17], 22, null, 11),
+
+  chickenBody: makeTex(16, [250, 250, 250], 26, [
+    { chance: 0.14, color: [236, 236, 232], scale: 2 },
+    { chance: 0.05, color: [222, 222, 218], scale: 3 }
+  ], 12),
+  chickenBeak: makeTex(16, [232, 160, 32], 14, null, 13),
+  chickenLeg:  makeTex(16, [200, 140, 40], 18, null, 14)
+};
+
+const SHADES = [0.92, 0.76, 1.00, 0.55, 0.86, 0.86];
+const MAT_CACHE = new Map();
+
+function getMobMaterial(color, texKey, faceIdx) {
+  const s = SHADES[faceIdx];
+  const key = (texKey ? 'T:' + texKey : 'C:' + color) + ':' + faceIdx;
+  const cached = MAT_CACHE.get(key);
+  if (cached) return cached;
+
+  const m = new THREE.MeshBasicMaterial({ fog: true });
+  const tex = texKey ? MOB_TEXTURES[texKey] : null;
+  if (tex) {
+    m.map = tex;
+    m.color.setRGB(s, s, s);
+  } else {
+    m.color.set(color).multiplyScalar(s);
+  }
+  MAT_CACHE.set(key, m);
+  return m;
+}
+
+function makeBox(w, h, d, color, texKey) {
+  const mats = [];
+  for (let i = 0; i < 6; i++) mats.push(getMobMaterial(color, texKey, i));
   return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats);
 }
 
 /* ============================================================
    ОПРЕДЕЛЕНИЯ МОБОВ
+
+   ВАЖНО: у каждой головы задняя грань заходит внутрь тела
+   (на 0.10–0.15 блока). Зазора между головой и телом нет —
+   всё читается как единое целое.
+
+   Части: [w, h, d, color, x, y, z, isLeg, texKey]
    ============================================================ */
 const MOB_TYPES = {
 
   pig: {
     h: 0.95, r: 0.35, speed: 1.4,
     parts: [
-      [0.9,  0.55, 0.5,  0xEE9999,  0,    0.55,  0,     false],
-      [0.45, 0.45, 0.4,  0xEE9999,  0,    0.75, -0.55,  false],
-      [0.22, 0.14, 0.08, 0xCC6677,  0,    0.66, -0.80,  false],
-      [0.07, 0.07, 0.04, 0x111111, -0.13, 0.86, -0.74,  false],
-      [0.07, 0.07, 0.04, 0x111111,  0.13, 0.86, -0.74,  false],
-      [0.15, 0.5,  0.15, 0xCC6677, -0.30, 0.25, -0.15,  true],
-      [0.15, 0.5,  0.15, 0xCC6677,  0.30, 0.25, -0.15,  true],
-      [0.15, 0.5,  0.15, 0xCC6677, -0.30, 0.25,  0.15,  true],
-      [0.15, 0.5,  0.15, 0xCC6677,  0.30, 0.25,  0.15,  true]
+      // тело: z от -0.25 до +0.25
+      [0.9,  0.55, 0.5,  0xEE9999,  0,    0.55,  0,     false, 'pigBody'],
+      // голова: центр -0.30, глубина 0.4 → z от -0.50 до -0.10 (входит в тело)
+      [0.45, 0.45, 0.4,  0xEE9999,  0,    0.75, -0.30,  false, 'pigHead'],
+      // пятачок: чуть впереди передней грани головы (-0.50)
+      [0.22, 0.14, 0.08, 0xCC6677,  0,    0.66, -0.53,  false, 'pigSnout'],
+      // глаза: чуть впереди передней грани
+      [0.07, 0.07, 0.04, 0x111111, -0.13, 0.86, -0.51,  false, null],
+      [0.07, 0.07, 0.04, 0x111111,  0.13, 0.86, -0.51,  false, null],
+      // ноги
+      [0.15, 0.5,  0.15, 0xCC6677, -0.30, 0.25, -0.15,  true,  'pigLeg'],
+      [0.15, 0.5,  0.15, 0xCC6677,  0.30, 0.25, -0.15,  true,  'pigLeg'],
+      [0.15, 0.5,  0.15, 0xCC6677, -0.30, 0.25,  0.15,  true,  'pigLeg'],
+      [0.15, 0.5,  0.15, 0xCC6677,  0.30, 0.25,  0.15,  true,  'pigLeg']
     ]
   },
 
   sheep: {
     h: 1.0, r: 0.35, speed: 1.2,
     parts: [
-      [0.9,  0.7,  0.6,  0xEEEEEE,  0,    0.60,  0,     false],
-      [0.4,  0.4,  0.4,  0x444444,  0,    0.80, -0.60,  false],
-      [0.09, 0.09, 0.04, 0xFFFFFF, -0.10, 0.90, -0.78,  false],
-      [0.09, 0.09, 0.04, 0xFFFFFF,  0.10, 0.90, -0.78,  false],
-      [0.13, 0.5,  0.13, 0x333333, -0.30, 0.25, -0.20,  true],
-      [0.13, 0.5,  0.13, 0x333333,  0.30, 0.25, -0.20,  true],
-      [0.13, 0.5,  0.13, 0x333333, -0.30, 0.25,  0.20,  true],
-      [0.13, 0.5,  0.13, 0x333333,  0.30, 0.25,  0.20,  true]
+      // тело: z от -0.30 до +0.30
+      [0.9,  0.7,  0.6,  0xEEEEEE,  0,    0.60,  0,     false, 'sheepWool'],
+      // голова: центр -0.35, глубина 0.4 → z от -0.55 до -0.15 (входит в тело)
+      [0.4,  0.4,  0.4,  0x444444,  0,    0.80, -0.35,  false, 'sheepFace'],
+      // глаза
+      [0.09, 0.09, 0.04, 0xFFFFFF, -0.10, 0.90, -0.56,  false, null],
+      [0.09, 0.09, 0.04, 0xFFFFFF,  0.10, 0.90, -0.56,  false, null],
+      // ноги
+      [0.13, 0.5,  0.13, 0x333333, -0.30, 0.25, -0.20,  true,  'sheepLeg'],
+      [0.13, 0.5,  0.13, 0x333333,  0.30, 0.25, -0.20,  true,  'sheepLeg'],
+      [0.13, 0.5,  0.13, 0x333333, -0.30, 0.25,  0.20,  true,  'sheepLeg'],
+      [0.13, 0.5,  0.13, 0x333333,  0.30, 0.25,  0.20,  true,  'sheepLeg']
     ]
   },
 
   cow: {
     h: 1.2, r: 0.42, speed: 1.2,
     parts: [
-      [1.1,  0.7,  0.65, 0x664422,  0,    0.65,  0,     false],
-      [0.5,  0.5,  0.5,  0x664422,  0,    0.85, -0.70,  false],
-      [0.08, 0.08, 0.05, 0x000000, -0.15, 0.95, -0.93,  false],
-      [0.08, 0.08, 0.05, 0x000000,  0.15, 0.95, -0.93,  false],
-      [0.08, 0.16, 0.08, 0xF0F0D0, -0.20, 1.18, -0.70,  false],
-      [0.08, 0.16, 0.08, 0xF0F0D0,  0.20, 1.18, -0.70,  false],
-      [0.15, 0.55, 0.15, 0x442211, -0.35, 0.275, -0.20, true],
-      [0.15, 0.55, 0.15, 0x442211,  0.35, 0.275, -0.20, true],
-      [0.15, 0.55, 0.15, 0x442211, -0.35, 0.275,  0.20, true],
-      [0.15, 0.55, 0.15, 0x442211,  0.35, 0.275,  0.20, true]
+      // тело: z от -0.325 до +0.325
+      [1.1,  0.7,  0.65, 0x664422,  0,    0.65,  0,     false, 'cowHide'],
+      // голова: центр -0.40, глубина 0.5 → z от -0.65 до -0.15 (входит в тело)
+      [0.5,  0.5,  0.5,  0x664422,  0,    0.85, -0.40,  false, 'cowFace'],
+      // глаза
+      [0.08, 0.08, 0.05, 0x000000, -0.15, 0.95, -0.66,  false, null],
+      [0.08, 0.08, 0.05, 0x000000,  0.15, 0.95, -0.66,  false, null],
+      // рога — сидят прямо на верхней грани головы
+      [0.08, 0.16, 0.08, 0xF0F0D0, -0.20, 1.18, -0.40,  false, 'cowHorn'],
+      [0.08, 0.16, 0.08, 0xF0F0D0,  0.20, 1.18, -0.40,  false, 'cowHorn'],
+      // ноги
+      [0.15, 0.55, 0.15, 0x442211, -0.35, 0.275, -0.20, true,  'cowLeg'],
+      [0.15, 0.55, 0.15, 0x442211,  0.35, 0.275, -0.20, true,  'cowLeg'],
+      [0.15, 0.55, 0.15, 0x442211, -0.35, 0.275,  0.20, true,  'cowLeg'],
+      [0.15, 0.55, 0.15, 0x442211,  0.35, 0.275,  0.20, true,  'cowLeg']
     ]
   },
 
   chicken: {
     h: 0.6, r: 0.20, speed: 2.0,
     parts: [
-      [0.40, 0.40, 0.40, 0xFFFFFF,  0,    0.35,  0,     false],
-      [0.28, 0.28, 0.28, 0xFFFFFF,  0,    0.62, -0.30,  false],
-      [0.10, 0.08, 0.14, 0xE8A020,  0,    0.56, -0.48,  false],
-      [0.06, 0.06, 0.04, 0x000000, -0.08, 0.68, -0.42,  false],
-      [0.06, 0.06, 0.04, 0x000000,  0.08, 0.68, -0.42,  false],
-      [0.10, 0.18, 0.10, 0xE8A020, -0.10, 0.09,  0.05,  true],
-      [0.10, 0.18, 0.10, 0xE8A020,  0.10, 0.09,  0.05,  true]
+      // тело: z от -0.20 до +0.20
+      [0.40, 0.40, 0.40, 0xFFFFFF,  0,    0.35,  0,     false, 'chickenBody'],
+      // голова: центр -0.22, глубина 0.28 → z от -0.36 до -0.08 (входит в тело)
+      [0.28, 0.28, 0.28, 0xFFFFFF,  0,    0.62, -0.22,  false, 'chickenBody'],
+      // клюв — впереди передней грани головы (-0.36)
+      [0.10, 0.08, 0.14, 0xE8A020,  0,    0.56, -0.42,  false, 'chickenBeak'],
+      // глаза
+      [0.06, 0.06, 0.04, 0x000000, -0.08, 0.68, -0.37,  false, null],
+      [0.06, 0.06, 0.04, 0x000000,  0.08, 0.68, -0.37,  false, null],
+      // ноги
+      [0.10, 0.18, 0.10, 0xE8A020, -0.10, 0.09,  0.05,  true,  'chickenLeg'],
+      [0.10, 0.18, 0.10, 0xE8A020,  0.10, 0.09,  0.05,  true,  'chickenLeg']
     ]
   }
 
@@ -135,7 +302,7 @@ function buildMobMesh(type) {
   const legs = [];
   for (let i = 0; i < def.parts.length; i++) {
     const p = def.parts[i];
-    const mesh = makeBox(p[0], p[1], p[2], p[3]);
+    const mesh = makeBox(p[0], p[1], p[2], p[3], p[8]);
     mesh.position.set(p[4], p[5], p[6]);
     group.add(mesh);
     if (p[7]) legs.push({ mesh: mesh, baseY: p[5] });
@@ -170,7 +337,8 @@ function createMob(type, x, y, z, yaw) {
     lastZ: z,
     stuckTimer: 0,
     avoidCooldown: 0,
-    jumpCooldown: 0
+    jumpCooldown: 0,
+    soundTimer: 2 + Math.random() * 6
   };
   mobs.push(mob);
   return mob;
@@ -193,22 +361,17 @@ function mobCollides(px, py, pz, r, h) {
   return false;
 }
 
-/* Может ли моб перепрыгнуть препятствие в направлении (axisX, axisZ)?
-   axisX/axisZ — знак направления (±1 или 0). Смотрим РОВНО на 1 блок вперёд. */
 function canJumpOver(mob, axisX, axisZ) {
   const r = mob.def.r, h = mob.def.h;
   const look = 1.0;
   const nx = mob.pos.x + axisX * look;
   const nz = mob.pos.z + axisZ * look;
 
-  // 1) на текущем уровне — должно блокировать
   if (!mobCollides(nx, mob.pos.y, nz, r, h)) return false;
 
-  // 2) приподнявшись на 1 блок — должно быть свободно
   const upY = mob.pos.y + 1.0;
   if (mobCollides(nx, upY, nz, r, h)) return false;
 
-  // 3) под подъёмом должна быть опора
   const groundY = Math.floor(upY - 0.01);
   const ix = Math.floor(nx), iz = Math.floor(nz);
   if (ix < 0 || ix >= SX || iz < 0 || iz >= SZ) return false;
@@ -217,7 +380,6 @@ function canJumpOver(mob, axisX, axisZ) {
   return true;
 }
 
-/* Прыжок: возвращает true, если прыгнули. */
 function tryJump(mob, axisX, axisZ) {
   if (mob.jumpCooldown > 0) return false;
   if (!mob.onGround) return false;
@@ -227,8 +389,6 @@ function tryJump(mob, axisX, axisZ) {
   return true;
 }
 
-/* Ключевое изменение: если прыжок удался — ВЫХОДИМ из mobMove,
-   не применяя вертикальный шаг этого кадра (иначе он обнулит vel.y). */
 function mobMove(mob, dx, dy, dz) {
   const r = mob.def.r, h = mob.def.h;
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz)) / 0.2));
@@ -239,7 +399,7 @@ function mobMove(mob, dx, dy, dz) {
       mob.pos.x += sx;
       if (mobCollides(mob.pos.x, mob.pos.y, mob.pos.z, r, h)) {
         mob.pos.x -= sx;
-        if (tryJump(mob, Math.sign(sx), 0)) return;   // прыгнули — пропускаем вертикальный шаг
+        if (tryJump(mob, Math.sign(sx), 0)) return;
         if (mob.onGround && mob.vel.y <= 0.01) reactToWall(mob);
       }
     }
@@ -247,7 +407,7 @@ function mobMove(mob, dx, dy, dz) {
       mob.pos.z += sz;
       if (mobCollides(mob.pos.x, mob.pos.y, mob.pos.z, r, h)) {
         mob.pos.z -= sz;
-        if (tryJump(mob, 0, Math.sign(sz))) return;   // аналогично
+        if (tryJump(mob, 0, Math.sign(sz))) return;
         if (mob.onGround && mob.vel.y <= 0.01) reactToWall(mob);
       }
     }
@@ -262,7 +422,6 @@ function mobMove(mob, dx, dy, dz) {
   }
 }
 
-/* Отойти от стены, когда прыжок невозможен (стена 2+) */
 function reactToWall(mob) {
   if (mob.avoidCooldown > 0) return;
   const back = mob.yaw + Math.PI;
@@ -274,6 +433,27 @@ function reactToWall(mob) {
 }
 
 /* ============================================================
+   ЗВУКИ МОБОВ
+   ============================================================ */
+function maybePlaySound(mob) {
+  if (!playerPos) return;
+  if (!window.SFX) return;
+
+  const dx = mob.pos.x - playerPos.x;
+  const dy = mob.pos.y - playerPos.y;
+  const dz = mob.pos.z - playerPos.z;
+  const d2 = dx * dx + dy * dy + dz * dz;
+  if (d2 > SOUND_MIN_DIST2) return;
+
+  const now = performance.now();
+  if (now - lastMobSoundTime < 500) return;
+  lastMobSoundTime = now;
+
+  const snd = window.SFX[mob.type];
+  if (typeof snd === 'function') snd();
+}
+
+/* ============================================================
    AI + ОБНОВЛЕНИЕ
    ============================================================ */
 function updateMob(mob, dt) {
@@ -282,7 +462,12 @@ function updateMob(mob, dt) {
   if (mob.avoidCooldown > 0) mob.avoidCooldown -= dt;
   if (mob.jumpCooldown > 0)  mob.jumpCooldown  -= dt;
 
-  // --- таймер блуждания ---
+  mob.soundTimer -= dt;
+  if (mob.soundTimer <= 0) {
+    mob.soundTimer = SOUND_INTERVAL_MIN + Math.random() * (SOUND_INTERVAL_MAX - SOUND_INTERVAL_MIN);
+    maybePlaySound(mob);
+  }
+
   mob.wanderTimer -= dt;
   if (mob.wanderTimer <= 0) {
     if (mob.walking && Math.random() < 0.45) {
@@ -295,31 +480,25 @@ function updateMob(mob, dt) {
     }
   }
 
-  // --- плавный поворот ---
   let dyaw = mob.targetYaw - mob.yaw;
   while (dyaw >  Math.PI) dyaw -= Math.PI * 2;
   while (dyaw < -Math.PI) dyaw += Math.PI * 2;
   mob.yaw += dyaw * Math.min(1, 5 * dt);
 
-  // --- горизонтальная скорость: сохраняется и в прыжке ---
   let vx = 0, vz = 0;
   if (mob.walking) {
     vx = -Math.sin(mob.yaw) * def.speed;
     vz = -Math.cos(mob.yaw) * def.speed;
   }
 
-  // --- гравитация ---
   mob.vel.y -= GRAVITY * dt;
   if (mob.vel.y < -30) mob.vel.y = -30;
 
-  // --- перемещение ---
   mobMove(mob, vx * dt, mob.vel.y * dt, vz * dt);
 
-  // --- земля под ногами ---
   mob.onGround = mobCollides(mob.pos.x, mob.pos.y - 0.05, mob.pos.z, def.r, def.h);
   if (mob.onGround && mob.vel.y < 0) mob.vel.y = 0;
 
-  /* ---------- ДЕТЕКТОР ЗАСТРЕВАНИЯ ---------- */
   if (mob.walking && mob.onGround) {
     const movedSq = (mob.pos.x - mob.lastX) * (mob.pos.x - mob.lastX) +
                     (mob.pos.z - mob.lastZ) * (mob.pos.z - mob.lastZ);
@@ -342,7 +521,6 @@ function updateMob(mob, dt) {
   mob.lastX = mob.pos.x;
   mob.lastZ = mob.pos.z;
 
-  // --- анимация ходьбы ---
   if (mob.walking && mob.onGround) {
     mob.walkPhase += dt * 8;
   } else {
@@ -354,11 +532,9 @@ function updateMob(mob, dt) {
     mob.legs[i].mesh.position.y = mob.legs[i].baseY + s;
   }
 
-  // --- трансформ ---
   mob.group.position.copy(mob.pos);
   mob.group.rotation.y = mob.yaw;
 
-  // --- страховка от падения в бездну ---
   if (mob.pos.y < -10) {
     const ix = Math.floor(mob.pos.x), iz = Math.floor(mob.pos.z);
     if (ix >= 0 && ix < SX && iz >= 0 && iz < SZ) {
@@ -430,10 +606,6 @@ function clear() {
     scene.remove(mobs[i].group);
     mobs[i].group.traverse(function (o) {
       if (o.geometry) o.geometry.dispose();
-      if (o.material) {
-        if (Array.isArray(o.material)) o.material.forEach(function (m) { m.dispose(); });
-        else o.material.dispose();
-      }
     });
   }
   mobs.length = 0;
@@ -465,7 +637,8 @@ function init(sc) {
   scene = sc;
 }
 
-function update(dt) {
+function update(dt, pPos) {
+  if (pPos) playerPos = pPos;
   for (let i = 0; i < mobs.length; i++) updateMob(mobs[i], dt);
 }
 

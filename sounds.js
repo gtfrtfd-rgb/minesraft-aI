@@ -1,10 +1,10 @@
 /* ============================================================
    sounds.js — процедурные звуки на Web Audio API (без файлов)
-   Профили: grass / dirt / sand / stone / wood / glass / snow
    Публичный объект:
      window.SFX = {
        resume, break, place, step, jump, select,
-       flyOn, flyOff, hurt, death
+       flyOn, flyOff, hurt, death,
+       pig, sheep, cow, chicken
      }
    ============================================================ */
 window.SFX = (function () {
@@ -239,31 +239,113 @@ function sndFlyOff() {
   playNoise({ duration: 0.10, decay: 3, filterType: 'lowpass', freq: 900, freqEnd: 400, gain: 0.07, when: 0.20 });
 }
 
-/* ---------- УРОН: отрывистый "удар" с понижением высоты ----------
-   Классический "ух" из Minecraft — низкий короткий возглас
-   + резкий шумовой щелчок сверху.
-   --------------------------------------------------------------- */
 function sndHurt() {
-  // низкий тон, падающий вниз — «ой»
   playTone({ type: 'square',   f0: 260, f1: 110, duration: 0.14, gain: 0.16 });
   playTone({ type: 'triangle', f0: 200, f1: 90,  duration: 0.16, gain: 0.10, when: 0.005 });
-
-  // короткий шумовой «удар» — слышно как толчок
   playNoise({ duration: 0.09, decay: 4.5, filterType: 'bandpass', freq: 800, freqEnd: 300, Q: 1.5, gain: 0.18 });
   playNoise({ duration: 0.04, decay: 6.0, filterType: 'highpass', freq: 2400, gain: 0.05, when: 0.004 });
 }
 
-/* ---------- СМЕРТЬ: нисходящий "стон" + длинный шумовой распад ---------- */
 function sndDeath() {
-  // «прощальный» длинный тон
   playTone({ type: 'square',   f0: 220, f1: 55,  duration: 0.75, gain: 0.14 });
   playTone({ type: 'triangle', f0: 180, f1: 45,  duration: 0.85, gain: 0.10, when: 0.02 });
   playTone({ type: 'sine',     f0: 110, f1: 40,  duration: 1.0,  gain: 0.07, when: 0.05 });
-
-  // шумовой хвост, растворяющийся в тишине
   playNoise({ duration: 0.9, decay: 1.6, filterType: 'lowpass', freq: 1200, freqEnd: 200, gain: 0.16, when: 0.02 });
-  // тонкий высокий «вскрик» в начале, чтобы резко привлечь внимание
   playNoise({ duration: 0.10, decay: 5, filterType: 'highpass', freq: 3200, gain: 0.08 });
+}
+
+/* ============================================================
+   ЗВУКИ МОБОВ
+   ============================================================ */
+
+/* Свинья: два коротких низких «хрюк» с шумовым призвуком */
+function sndPig() {
+  const p = 0.9 + Math.random() * 0.2;
+  playTone({ type: 'sawtooth', f0: 220 * p, f1: 150 * p, duration: 0.12, gain: 0.10 });
+  playTone({ type: 'sawtooth', f0: 240 * p, f1: 160 * p, duration: 0.10, gain: 0.08, when: 0.14 });
+  playNoise({ duration: 0.18, decay: 3, filterType: 'bandpass', freq: 550, Q: 1.4, gain: 0.06 });
+}
+
+/* Овца: длинное «бэ-э-э» с вибрато (LFO на частоте ~16 Гц) */
+function sndSheep() {
+  const c = getCtx(); if (!c) return;
+  const p = 0.9 + Math.random() * 0.15;
+  const t0 = c.currentTime;
+  const dur = 0.55;
+
+  const osc = c.createOscillator();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(380 * p, t0);
+  osc.frequency.linearRampToValueAtTime(320 * p, t0 + dur);
+
+  const lfo = c.createOscillator();
+  lfo.type = 'sine';
+  lfo.frequency.value = 16 + Math.random() * 4;
+  const lfoGain = c.createGain();
+  lfoGain.gain.value = 22;
+  lfo.connect(lfoGain);
+  lfoGain.connect(osc.frequency);
+
+  const filt = c.createBiquadFilter();
+  filt.type = 'bandpass';
+  filt.Q.value = 1.2;
+  filt.frequency.value = 1800;
+
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.10, t0 + 0.03);
+  g.gain.setValueAtTime(0.10, t0 + dur - 0.18);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+  osc.connect(filt).connect(g).connect(c.destination);
+  osc.start(t0);
+  lfo.start(t0);
+  osc.stop(t0 + dur + 0.05);
+  lfo.stop(t0 + dur + 0.05);
+}
+
+/* Корова: длинное низкое «му-у» с медленным вибрато */
+function sndCow() {
+  const c = getCtx(); if (!c) return;
+  const p = 0.9 + Math.random() * 0.15;
+  const t0 = c.currentTime;
+  const dur = 0.75;
+
+  const osc = c.createOscillator();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(160 * p, t0);
+  osc.frequency.linearRampToValueAtTime(115 * p, t0 + dur);
+
+  const lfo = c.createOscillator();
+  lfo.frequency.value = 6;
+  const lfoGain = c.createGain();
+  lfoGain.gain.value = 10;
+  lfo.connect(lfoGain);
+  lfoGain.connect(osc.frequency);
+
+  const filt = c.createBiquadFilter();
+  filt.type = 'lowpass';
+  filt.frequency.value = 900;
+
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.11, t0 + 0.05);
+  g.gain.setValueAtTime(0.11, t0 + dur - 0.25);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+  osc.connect(filt).connect(g).connect(c.destination);
+  osc.start(t0);
+  lfo.start(t0);
+  osc.stop(t0 + dur + 0.05);
+  lfo.stop(t0 + dur + 0.05);
+}
+
+/* Курица: два коротких «кло-кло», высокие, отрывистые */
+function sndChicken() {
+  const p = 0.95 + Math.random() * 0.15;
+  playTone({ type: 'square', f0: 1000 * p, f1: 600 * p, duration: 0.05, gain: 0.07 });
+  playTone({ type: 'square', f0: 1200 * p, f1: 700 * p, duration: 0.06, gain: 0.06, when: 0.13 });
+  playNoise({ duration: 0.03, decay: 6, filterType: 'highpass', freq: 3000, gain: 0.03 });
 }
 
 return {
@@ -276,7 +358,11 @@ return {
   flyOn:  sndFlyOn,
   flyOff: sndFlyOff,
   hurt:   sndHurt,
-  death:  sndDeath
+  death:  sndDeath,
+  pig:    sndPig,
+  sheep:  sndSheep,
+  cow:    sndCow,
+  chicken: sndChicken
 };
 
 })();

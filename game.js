@@ -4,9 +4,8 @@
    + материальные звуки и шаги
    + невидимые барьеры по краям мира
    + бег (Shift / двойной W / двойная ↑) и полёт (F) с FOV
-   + мирные мобы (MOBS)
+   + мирные мобы (MOBS) со своими текстурами и звуками
    + здоровье игрока (HP, урон от падения, регенерация, смерть)
-   + звук получения урона и смерти
    + 10 слотов хотбара, включая песок (клавиша 0)
    ============================================================ */
 (function () {
@@ -45,7 +44,7 @@ const generateWorld = MC.generateWorld;
 const buildChunk = MC.buildChunk, buildAllChunks = MC.buildAllChunks;
 const rebuildAround = MC.rebuildAround, rebuildAll = MC.rebuildAll;
 
-const GAME_VERSION = 'v2';
+const GAME_VERSION = 'V2.0.1';
 
 /* ---------- безопасная обёртка SFX ---------- */
 const SFX = (function () {
@@ -976,9 +975,9 @@ function update(dt) {
     sprintActive = false;
   }
 
-  /* ---- мобы ---- */
+  /* ---- мобы (передаём позицию игрока для звуков) ---- */
   try {
-    MOBS.update(dt);
+    MOBS.update(dt, player.pos);
   } catch (e) {
     console.error('mobs update error', e);
   }
