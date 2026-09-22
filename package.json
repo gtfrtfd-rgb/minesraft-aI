@@ -1,6 +1,6 @@
 {
   "name": "minecraft-web",
-  "version": "2.1.0",
+  "version": "0",
   "description": "Воксельная игра в браузере на three.js — Node.js обвязка",
   "private": true,
   "main": "server.js",
