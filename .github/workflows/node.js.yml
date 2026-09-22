@@ -1,21 +1,13 @@
-# CI: установка и запуск smoke-тестов в среде Windows
-name: Node.js CI (Windows)
-
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+# ... (строки name: и on: остаются прежними)
 
 jobs:
   build:
-    # Меняем Linux на Windows
     runs-on: windows-latest
 
     strategy:
       fail-fast: false
       matrix:
-        node-version: [build]
+        node-version: [18.x, 20.x, 22.x] # Проверьте, чтобы тут было написано именно node-version через дефис
 
     steps:
       - uses: actions/checkout@v4
@@ -23,9 +15,8 @@ jobs:
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: ${{ matrix.node-version }} # Здесь имя должно строго совпадать с матрицей выше
 
-      # На Windows команда отработает аналогично
       - name: Install dependencies
         run: npm install
 
