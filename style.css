@@ -96,7 +96,7 @@ body.mobile .touch-note{display:block}
 #death .btn:hover{filter:brightness(1.15)}
 
 /* ============================================================
-   МОБИЛЬНОЕ УПРАВЛЕНИЕ — джойстик и кнопки действий
+   МОБИЛЬНОЕ УПРАВЛЕНИЕ
    ============================================================ */
 #mobile-ui{display:none;position:fixed;inset:0;pointer-events:none;z-index:10}
 body.mobile #mobile-ui{display:block}
@@ -122,22 +122,18 @@ body.mobile #mobile-ui{display:block}
   transition:transform .05s linear;will-change:transform;
 }
 
-/* Сетка кнопок. Позиции задаются через grid-area явно:
-     [ ⛏ break ]  [ ▣ place ]
-     [ ✈ fly   ]  [ ↑ jump  ]   ← jump справа (правее fly) */
 #mob-buttons{
   position:absolute;right:20px;bottom:24px;
   display:grid;
   grid-template-columns:repeat(2, 62px);
-  grid-template-rows:62px 82px;      /* 2-й ряд выше — под большую jump */
+  grid-template-rows:62px 62px;
   gap:10px;
   pointer-events:auto;
 }
-
 #btn-break { grid-column:1; grid-row:1; }
 #btn-place { grid-column:2; grid-row:1; }
 #btn-fly   { grid-column:1; grid-row:2; }
-#btn-jump  { grid-column:2; grid-row:2; }   /* прыжок — правее полёта */
+#btn-jump  { grid-column:2; grid-row:2; }
 
 .mob-btn{
   width:62px;height:62px;border-radius:50%;
@@ -159,38 +155,62 @@ body.mobile #mobile-ui{display:block}
   border-color:#fff;
 }
 .mob-btn-big{
-  width:82px;height:82px;
-  font-size:34px;
+  width:62px;height:62px;
+  font-size:26px;
   background:rgba(30,60,30,.60);
   border-color:rgba(126,200,80,.7);
-  align-self:end;                     /* прижат к нижнему краю своей ячейки */
-  justify-self:end;
 }
 
-/* ---------- HUD на мобильных ---------- */
-/* Хотбар теперь ближе к сердечкам: сердца на top:14, хотбар на top:42 */
+/* ============================================================
+   HUD НА МОБИЛЬНЫХ
+   ------------------------------------------------------------
+   Сердечки → хотбар → инфо: всё сверху, друг под другом.
+   ============================================================ */
+
+/* 1) Сердечки на самом верху */
 body.mobile #health{
-  bottom:auto;top:14px;left:50%;transform:translateX(-50%);
+  bottom:auto;
+  top:10px;
+  left:50%;
+  transform:translateX(-50%);
   padding:3px 6px;
 }
-body.mobile #hotbar{
-  bottom:auto;top:42px;               /* было 70 — теперь ближе */
-  gap:3px;padding:4px;
-  max-width:calc(100vw - 100px);flex-wrap:wrap;justify-content:center;
-}
-body.mobile .slot{width:40px;height:40px}
-body.mobile .slot .num{font-size:9px;top:0;left:2px}
 body.mobile .heart{width:14px;height:12px}
 body.mobile .heart::before,
 body.mobile .heart::after{width:7px;height:11px}
 body.mobile .heart::before{left:7px}
-body.mobile #info{
-  font-size:11px;top:auto;
-  bottom:calc(24px + 140px + 12px);
-  left:50%;transform:translateX(-50%);
-  text-align:center;line-height:1.4;
+
+/* 2) Хотбар — сразу под сердечками */
+body.mobile #hotbar{
+  bottom:auto;
+  top:38px;
+  gap:3px;
+  padding:4px;
+  max-width:calc(100vw - 100px);
+  flex-wrap:wrap;
+  justify-content:center;
 }
-body.mobile #hint{bottom:calc(24px + 140px + 40px)}
+body.mobile .slot{width:40px;height:40px}
+body.mobile .slot .num{font-size:9px;top:0;left:2px}
+
+/* 3) Инфо (XYZ/FPS) — вплотную под хотбаром */
+body.mobile #info{
+  font-size:11px;
+  top:auto;
+  bottom:auto;
+  top:88px;                     /* хотбар: top 38 + ~44 высота + 6 зазор */
+  left:50%;
+  transform:translateX(-50%);
+  text-align:center;
+  line-height:1.4;
+}
+
+/* 4) Подсказки — ниже инфо */
+body.mobile #hint{
+  bottom:auto;
+  top:130px;
+}
+
 body.mobile #crosshair{opacity:.7}
 
 @media (max-height: 500px){
@@ -198,10 +218,10 @@ body.mobile #crosshair{opacity:.7}
   #joystick-stick{width:48px;height:48px;margin:-24px 0 0 -24px}
   #mob-buttons{right:14px;bottom:16px;
     grid-template-columns:repeat(2, 52px);
-    grid-template-rows:52px 68px;
+    grid-template-rows:52px 52px;
     gap:8px}
   .mob-btn{width:52px;height:52px;font-size:22px}
-  .mob-btn-big{width:68px;height:68px;font-size:28px}
+  .mob-btn-big{width:52px;height:52px;font-size:22px}
 }
 
 /* ============================================================
