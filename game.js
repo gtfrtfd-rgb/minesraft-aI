@@ -10,7 +10,8 @@
    + ЛКМ: удар по мобу (урон, отбрасывание, паника)
    + облака на небе: 26 разных облаков с 8 текстурами
    + биомы и увеличенный мир (256×256×48)
-   + МОБИЛЬНАЯ ПОДДЕРЖКА: джойстик, свайп-обзор, кнопки действий
+   + МОБИЛЬНАЯ ПОДДЕРЖКА
+   + НАСТРОЙКИ: громкость, полный экран
    ============================================================ */
 (function () {
 'use strict';
@@ -47,9 +48,8 @@ const generateWorld = MC.generateWorld;
 const buildChunk = MC.buildChunk, buildAllChunks = MC.buildAllChunks;
 const rebuildAround = MC.rebuildAround, rebuildAll = MC.rebuildAll;
 
-const GAME_VERSION = 'V2.1.1.MOBILE TEST';
+const GAME_VERSION = 'V2.1.1.TEST';
 
-/* ---------- определение мобильного ---------- */
 const isMobile = ('ontouchstart' in window) ||
                  (navigator.maxTouchPoints > 0) ||
                  (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
@@ -62,13 +62,16 @@ const SFX = (function () {
     if (!s.flyOff) s.flyOff = function () {};
     if (!s.hurt)   s.hurt   = function () {};
     if (!s.death)  s.death  = function () {};
+    if (!s.setVolume) s.setVolume = function () {};
+    if (!s.getVolume) s.getVolume = function () { return 1; };
     return s;
   }
   console.warn('[game.js] sounds.js не загрузился — работаем без звуков');
   const noop = function () {};
   return {
     resume: noop, break: noop, place: noop, step: noop, jump: noop,
-    select: noop, flyOn: noop, flyOff: noop, hurt: noop, death: noop
+    select: noop, flyOn: noop, flyOff: noop, hurt: noop, death: noop,
+    setVolume: noop, getVolume: function () { return 1; }
   };
 })();
 
@@ -200,11 +203,8 @@ const clouds = (function makeClouds() {
   for (let i = 0; i < 8; i++) textures.push(makeCloudTexture(1000 + i * 137));
   const materials = textures.map(function (t) {
     return new THREE.MeshBasicMaterial({
-      map: t,
-      transparent: true,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      fog: false
+      map: t, transparent: true, depthWrite: false,
+      side: THREE.DoubleSide, fog: false
     });
   });
 
@@ -228,7 +228,6 @@ const clouds = (function makeClouds() {
     );
     mesh.frustumCulled = false;
     group.add(mesh);
-
     list.push({ mesh: mesh, speed: 0.4 + rnd2() * 0.8 });
   }
 
@@ -239,7 +238,6 @@ const clouds = (function makeClouds() {
 function updateClouds(dt, pPos) {
   clouds.group.position.x = pPos.x;
   clouds.group.position.z = pPos.z;
-
   const S = clouds.spread;
   for (let i = 0; i < clouds.list.length; i++) {
     const c = clouds.list[i];
@@ -259,7 +257,6 @@ function updateClouds(dt, pPos) {
   });
   const geoNS = new THREE.PlaneGeometry(SX, H);
   const geoEW = new THREE.PlaneGeometry(SZ, H);
-
   const w1 = new THREE.Mesh(geoNS, mat); w1.position.set(SX / 2, H / 2, 0); scene.add(w1);
   const w2 = new THREE.Mesh(geoNS, mat); w2.position.set(SX / 2, H / 2, SZ); scene.add(w2);
   const w3 = new THREE.Mesh(geoEW, mat); w3.rotation.y = Math.PI / 2; w3.position.set(0, H / 2, SZ / 2); scene.add(w3);
@@ -345,6 +342,91 @@ const HARDNESS = {
   6: 0.85, 7: 0.20, 8: 0.85, 9: 1.20,
   10: 0.28, 11: 0.35, 12: 3.50
 };
+
+/* ============================================================
+   1.3. НАСТРОЙКИ (громкость, полный экран)
+   ============================================================ */
+const SETTINGS_KEY = 'mcweb_settings_v1';
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return { volume: 1 };
+    const d = JSON.parse(raw);
+    return { volume: typeof d.volume === 'number' ? d.volume : 1 };
+  } catch (e) { return { volume: 1 }; }
+}
+function saveSettings(s) {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) {}
+}
+
+const settings = loadSettings();
+
+const settingsBtn   = document.getElementById('btn-settings');
+const settingsPanel = document.getElementById('settings-panel');
+const volSlider     = document.getElementById('set-volume');
+const volValueEl    = document.getElementById('set-volume-val');
+const fsCheckbox    = document.getElementById('set-fullscreen');
+
+SFX.setVolume(settings.volume);
+volSlider.value = Math.round(settings.volume * 100);
+volValueEl.textContent = Math.round(settings.volume * 100) + '%';
+
+volSlider.addEventListener('input', function () {
+  const v = parseFloat(volSlider.value) / 100;
+  SFX.setVolume(v);
+  volValueEl.textContent = Math.round(v * 100) + '%';
+  settings.volume = v;
+  saveSettings(settings);
+});
+
+function isFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+fsCheckbox.checked = isFullscreen();
+
+function enterFullscreen() {
+  const el = document.documentElement;
+  const p = el.requestFullscreen || el.webkitRequestFullscreen ||
+            el.mozRequestFullScreen || el.msRequestFullscreen;
+  if (p) { try { p.call(el); } catch (e) {} }
+}
+function exitFullscreen() {
+  const p = document.exitFullscreen || document.webkitExitFullscreen ||
+            document.mozCancelFullScreen || document.msExitFullscreen;
+  if (p) { try { p.call(document); } catch (e) {} }
+}
+
+fsCheckbox.addEventListener('change', function () {
+  if (fsCheckbox.checked) enterFullscreen();
+  else exitFullscreen();
+});
+document.addEventListener('fullscreenchange', function () {
+  fsCheckbox.checked = isFullscreen();
+});
+document.addEventListener('webkitfullscreenchange', function () {
+  fsCheckbox.checked = isFullscreen();
+});
+
+function toggleSettings(force) {
+  const open = settingsPanel.classList.contains('open');
+  const shouldOpen = (force === undefined) ? !open : force;
+  if (shouldOpen) settingsPanel.classList.add('open');
+  else            settingsPanel.classList.remove('open');
+  settingsBtn.classList.toggle('active', shouldOpen);
+}
+settingsBtn.addEventListener('click', function (e) {
+  e.stopPropagation();
+  toggleSettings();
+});
+document.addEventListener('click', function (e) {
+  if (!settingsPanel.classList.contains('open')) return;
+  if (e.target.closest && e.target.closest('#settings-panel, #btn-settings')) return;
+  toggleSettings(false);
+});
+document.addEventListener('keydown', function (e) {
+  if (e.code === 'Escape') toggleSettings(false);
+});
 
 /* ============================================================
    2. ЗДОРОВЬЕ ИГРОКА
@@ -550,7 +632,7 @@ renderer.domElement.addEventListener('click', function () {
 });
 
 document.addEventListener('pointerlockchange', () => {
-  if (isMobile) return; // на мобильных pointerlock не используется
+  if (isMobile) return;
   locked = document.pointerLockElement === renderer.domElement;
   menu.style.display = (locked || dead) ? 'none' : 'flex';
   if (!locked) {
@@ -628,21 +710,13 @@ document.addEventListener('wheel', (e) => {
 
 /* ============================================================
    4.1. МОБИЛЬНОЕ УПРАВЛЕНИЕ
-   ------------------------------------------------------------
-   Джойстик задаёт вектор движения, свайп по экрану — обзор,
-   кнопки — действия. Всё работает поверх существующей логики.
    ============================================================ */
-const mobileInput = {
-  active: false,          // двигается ли джойстик
-  mx: 0, my: 0,           // вектор [-1..1] по X / Y
-  sprint: false           // джойстик отведён почти до края
-};
+const mobileInput = { active: false, mx: 0, my: 0, sprint: false };
 
 if (isMobile) {
-  /* ---------- джойстик ---------- */
   const joyEl = document.getElementById('joystick');
   const stickEl = document.getElementById('joystick-stick');
-  const JOY_RADIUS = 55;    // предел смещения стика (px)
+  const JOY_RADIUS = 55;
   const SPRINT_THRESHOLD = 0.85;
   let joyTouchId = null;
   let joyCx = 0, joyCy = 0;
@@ -655,7 +729,6 @@ if (isMobile) {
     mobileInput.sprint = false;
     joyTouchId = null;
   }
-
   function joyStart(e) {
     e.preventDefault();
     const t = e.changedTouches[0];
@@ -665,42 +738,33 @@ if (isMobile) {
     joyCy = r.top + r.height / 2;
     joyMove(e);
   }
-
   function joyMove(e) {
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
       if (t.identifier !== joyTouchId) continue;
-
       let dx = t.clientX - joyCx;
       let dy = t.clientY - joyCy;
       const len = Math.hypot(dx, dy);
-      if (len > JOY_RADIUS) {
-        dx = dx / len * JOY_RADIUS;
-        dy = dy / len * JOY_RADIUS;
-      }
+      if (len > JOY_RADIUS) { dx = dx / len * JOY_RADIUS; dy = dy / len * JOY_RADIUS; }
       stickEl.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
-
-      // вектор [-1..1]
       mobileInput.mx = dx / JOY_RADIUS;
       mobileInput.my = dy / JOY_RADIUS;
       mobileInput.active = true;
       mobileInput.sprint = (Math.hypot(dx, dy) / JOY_RADIUS) > SPRINT_THRESHOLD;
     }
   }
-
   joyEl.addEventListener('touchstart', joyStart, { passive: false });
   joyEl.addEventListener('touchmove',  joyMove,  { passive: false });
   joyEl.addEventListener('touchend',    joyReset);
   joyEl.addEventListener('touchcancel', joyReset);
 
-  /* ---------- обзор: свайп по свободной части экрана ---------- */
   const LOOK_SENS = 0.005;
   let lookTouchId = null;
   let lastLookX = 0, lastLookY = 0;
 
   function isUIElement(target) {
     if (!target) return false;
-    return !!(target.closest && target.closest('#joystick, #mob-buttons, #btn-menu, #hotbar, #menu, #death'));
+    return !!(target.closest && target.closest('#joystick, #mob-buttons, #btn-menu, #btn-settings, #settings-panel, #hotbar, #menu, #death'));
   }
 
   document.addEventListener('touchstart', function (e) {
@@ -725,7 +789,6 @@ if (isMobile) {
       const dy = t.clientY - lastLookY;
       lastLookX = t.clientX;
       lastLookY = t.clientY;
-
       yaw   -= dx * LOOK_SENS;
       pitch -= dy * LOOK_SENS;
       const lim = Math.PI / 2 - 0.001;
@@ -736,22 +799,18 @@ if (isMobile) {
 
   function lookEnd(e) {
     for (let i = 0; i < e.changedTouches.length; i++) {
-      if (e.changedTouches[i].identifier === lookTouchId) {
-        lookTouchId = null;
-      }
+      if (e.changedTouches[i].identifier === lookTouchId) lookTouchId = null;
     }
   }
   document.addEventListener('touchend', lookEnd);
   document.addEventListener('touchcancel', lookEnd);
 
-  /* ---------- кнопки действий ---------- */
   const btnBreak = document.getElementById('btn-break');
   const btnPlace = document.getElementById('btn-place');
   const btnJump  = document.getElementById('btn-jump');
   const btnFly   = document.getElementById('btn-fly');
   const btnMenu  = document.getElementById('btn-menu');
 
-  // Ломать: удержание = mouseDown[0] = true
   function bindHold(btn, onDown, onUp) {
     btn.addEventListener('touchstart', function (e) {
       e.preventDefault(); e.stopPropagation();
@@ -771,19 +830,12 @@ if (isMobile) {
     function () {
       if (dead || !locked) return;
       mouseDown[0] = true;
-      breaking.active = false;
-      breaking.progress = 0;
-      breaking.stage = 0;
-      // попытка сначала ударить моба
+      breaking.active = false; breaking.progress = 0; breaking.stage = 0;
       if (tryAttackMob() && breaking.active) stopBreaking();
     },
-    function () {
-      mouseDown[0] = false;
-      stopBreaking();
-    }
+    function () { mouseDown[0] = false; stopBreaking(); }
   );
 
-  // Поставить: тап = одно действие
   btnPlace.addEventListener('touchstart', function (e) {
     e.preventDefault(); e.stopPropagation();
     btnPlace.classList.add('pressed');
@@ -791,13 +843,11 @@ if (isMobile) {
     setTimeout(function () { btnPlace.classList.remove('pressed'); }, 120);
   }, { passive: false });
 
-  // Прыжок: удержание = keys['Space'] = true
   bindHold(btnJump,
     function () { if (!dead && locked) keys['Space'] = true; },
     function () { keys['Space'] = false; }
   );
 
-  // Полёт: тап = toggleFly
   btnFly.addEventListener('touchstart', function (e) {
     e.preventDefault(); e.stopPropagation();
     btnFly.classList.add('pressed');
@@ -805,7 +855,6 @@ if (isMobile) {
     setTimeout(function () { btnFly.classList.remove('pressed'); }, 120);
   }, { passive: false });
 
-  // Меню: показать / скрыть
   btnMenu.addEventListener('touchstart', function (e) {
     e.preventDefault(); e.stopPropagation();
     if (menu.style.display === 'flex') {
@@ -814,7 +863,6 @@ if (isMobile) {
     } else {
       locked = false;
       menu.style.display = 'flex';
-      // на всякий случай сбрасываем все входные состояния
       for (const k in keys) keys[k] = false;
       mouseDown[0] = false;
       stopBreaking();
@@ -845,7 +893,6 @@ function raycastBlock() {
 }
 
 let currentTarget = null;
-
 const breaking = { active: false, target: null, progress: 0, stage: 0 };
 
 function stopBreaking() {
@@ -988,7 +1035,6 @@ function b64ToU8(str) {
 
 let dirty = false;
 function markDirty() { dirty = true; }
-
 let worldSeed = 1337;
 
 function saveGame() {
@@ -1054,17 +1100,12 @@ window.addEventListener('beforeunload', function () { if (dirty) saveGame(); });
 const loadingEl = document.getElementById('loading');
 const loadingTextEl = loadingEl ? loadingEl.querySelector('div') : null;
 
-function setLoadingText(t) {
-  if (loadingTextEl) loadingTextEl.textContent = t;
-}
-function showLoading(on) {
-  if (loadingEl) loadingEl.style.display = on ? 'flex' : 'none';
-}
+function setLoadingText(t) { if (loadingTextEl) loadingTextEl.textContent = t; }
+function showLoading(on) { if (loadingEl) loadingEl.style.display = on ? 'flex' : 'none'; }
 
 function buildChunksAsync(onProgress, onDone) {
   const total = CHX * CHZ;
   let cx = 0, cz = 0, built = 0;
-
   function step() {
     const t0 = performance.now();
     while (cz < CHZ && (performance.now() - t0) < 14) {
@@ -1119,7 +1160,7 @@ function buildChunksAsync(onProgress, onDone) {
             showLoading(false);
             console.log('[game.js] init OK. Игрок:', player.pos.toArray(),
                         '| мобов:', MOBS.count(), '| hp:', hp,
-                        '| mobile:', isMobile);
+                        '| mobile:', isMobile, '| volume:', settings.volume);
           }
         );
       } catch (e) {
@@ -1157,9 +1198,8 @@ function update(dt) {
     let moving = false;
 
     if (isMobile) {
-      /* ---- движение через джойстик ---- */
       if (mobileInput.active) {
-        const fwdAmt    = -mobileInput.my;   // стик вверх → движение вперёд
+        const fwdAmt    = -mobileInput.my;
         const strafeAmt =  mobileInput.mx;
         _wish.x = _fwd.x * fwdAmt + _rgt.x * strafeAmt;
         _wish.z = _fwd.z * fwdAmt + _rgt.z * strafeAmt;
@@ -1167,7 +1207,6 @@ function update(dt) {
         moving = _wish.lengthSq() > 0.001;
       }
     } else {
-      /* ---- движение через клавиатуру ---- */
       if (locked) {
         if (keys['KeyW']) _wish.add(_fwd);
         if (keys['KeyS']) _wish.sub(_fwd);
@@ -1193,11 +1232,9 @@ function update(dt) {
     if (player.fly) {
       const sp = ctrl ? 26 : 12;
       if (isMobile) {
-        // в полёте: джойстик даёт горизонталь и вертикаль
         player.vel.x = _wish.x * sp;
         player.vel.z = _wish.z * sp;
-        let vy = -mobileInput.my * sp;   // стик вверх → вверх
-        // если джойстик не задействован — зависаем
+        let vy = -mobileInput.my * sp;
         if (!mobileInput.active) { player.vel.x = 0; player.vel.z = 0; vy = 0; }
         player.vel.y = vy;
       } else {
@@ -1212,7 +1249,6 @@ function update(dt) {
       stepAcc = 0;
       fovTarget = ctrl ? FLY_FOV + 8 : FLY_FOV;
     } else {
-      // спринт: клавиша Shift/Ctrl, двойной тап, или джойстик до упора
       sprintActive = shift || ctrl ||
                      (forwardLock && forwardHeld && moving) ||
                      (isMobile && mobileInput.sprint && moving);
@@ -1226,7 +1262,6 @@ function update(dt) {
       player.vel.y -= GRAVITY * dt;
       if (player.vel.y < -55) player.vel.y = -55;
 
-      // прыжок: Space (клавиатура) или кнопка Jump (мобильный)
       if (locked && keys['Space'] && player.onGround) {
         player.vel.y = JUMP;
         player.onGround = false;
@@ -1244,7 +1279,6 @@ function update(dt) {
       if (player.onGround && player.vel.y < 0) player.vel.y = 0;
     }
 
-    /* ---- урон от падения ---- */
     if (!player.fly) {
       if (!player.onGround) {
         if (wasOnGround) highestAirY = player.pos.y;
@@ -1263,7 +1297,6 @@ function update(dt) {
     }
     wasOnGround = player.onGround;
 
-    /* ---- шаги ---- */
     if (!player.fly && player.onGround) {
       const spd = Math.hypot(player.vel.x, player.vel.z);
       if (spd > 0.4) {
@@ -1287,7 +1320,6 @@ function update(dt) {
       stepAcc = 0;
     }
 
-    /* ---- регенерация ---- */
     if (hp > 0 && hp < MAX_HP) {
       const sinceDmg = performance.now() - lastDamageTime;
       if (sinceDmg > REGEN_DELAY_MS) {
@@ -1301,7 +1333,6 @@ function update(dt) {
 
     if (player.pos.y < -30) damagePlayer(MAX_HP);
 
-    /* ---- плавное изменение FOV ---- */
     const newFov = camera.fov + (fovTarget - camera.fov) * Math.min(1, 8 * dt);
     if (Math.abs(newFov - camera.fov) > 0.01) {
       camera.fov = newFov;
@@ -1311,7 +1342,6 @@ function update(dt) {
     sprintActive = false;
   }
 
-  /* ---- мобы ---- */
   try {
     MOBS.update(dt, player.pos);
   } catch (e) {
@@ -1330,7 +1360,6 @@ function update(dt) {
     hlBox.visible = false;
   }
 
-  /* ---- атака мобов по удержанию ЛКМ ---- */
   if (locked && mouseDown[0] && !dead) {
     if (tryAttackMob()) {
       if (breaking.active) stopBreaking();
@@ -1373,6 +1402,6 @@ function loop(now) {
 requestAnimationFrame(loop);
 
 console.log('[game.js] скрипт загружен, размер мира', SX + '×' + SZ + '×' + SY,
-            '| mobile:', isMobile);
+            '| mobile:', isMobile, '| version:', GAME_VERSION);
 
 })();

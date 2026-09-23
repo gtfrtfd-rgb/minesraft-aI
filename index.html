@@ -33,6 +33,29 @@
   <button id="btn-menu" aria-label="Меню">☰</button>
 </div>
 
+<!-- ---------- КНОПКА И ПАНЕЛЬ НАСТРОЕК ---------- -->
+<button id="btn-settings" aria-label="Настройки">⚙</button>
+
+<div id="settings-panel">
+  <div class="settings-title">Настройки</div>
+
+  <label class="setting-row">
+    <span class="setting-label">Громкость</span>
+    <input type="range" id="set-volume" min="0" max="100" step="1" value="100">
+    <span class="setting-value" id="set-volume-val">100%</span>
+  </label>
+
+  <label class="setting-row">
+    <span class="setting-label">Полный экран</span>
+    <span class="setting-toggle">
+      <input type="checkbox" id="set-fullscreen">
+      <span class="toggle-track"><span class="toggle-knob"></span></span>
+    </span>
+  </label>
+
+  <div class="settings-hint">Esc — выйти из полного экрана</div>
+</div>
+
 <div id="death">
   <h2>ВЫ УМЕРЛИ</h2>
   <div class="sub">Потеряно всё, кроме опыта…</div>
@@ -52,6 +75,7 @@
     <div>Сломать блок</div><div><b>ЛКМ</b> (удерживать)</div>
     <div>Поставить блок</div><div><b>ПКМ</b></div>
     <div>Выбор блока</div><div><b>1–9</b>, <b>0</b>, <b>−</b> / колесо</div>
+    <div>Настройки</div><div><b>⚙</b> (справа сверху)</div>
     <div>Выйти из игры</div><div><b>Esc</b></div>
   </div>
   <div class="touch-note">На телефоне: джойстик слева, кнопки справа.<br>Свайп по экрану — обзор. Тап по слоту — выбор блока.</div>
