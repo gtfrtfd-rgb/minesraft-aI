@@ -122,11 +122,23 @@ body.mobile #mobile-ui{display:block}
   transition:transform .05s linear;will-change:transform;
 }
 
+/* Сетка кнопок. Позиции задаются через grid-area явно:
+     [ ⛏ break ]  [ ▣ place ]
+     [ ✈ fly   ]  [ ↑ jump  ]   ← jump справа (правее fly) */
 #mob-buttons{
   position:absolute;right:20px;bottom:24px;
-  display:grid;grid-template-columns:repeat(2, 62px);
-  grid-auto-rows:62px;gap:10px;pointer-events:auto;
+  display:grid;
+  grid-template-columns:repeat(2, 62px);
+  grid-template-rows:62px 82px;      /* 2-й ряд выше — под большую jump */
+  gap:10px;
+  pointer-events:auto;
 }
+
+#btn-break { grid-column:1; grid-row:1; }
+#btn-place { grid-column:2; grid-row:1; }
+#btn-fly   { grid-column:1; grid-row:2; }
+#btn-jump  { grid-column:2; grid-row:2; }   /* прыжок — правее полёта */
+
 .mob-btn{
   width:62px;height:62px;border-radius:50%;
   border:2px solid rgba(255,255,255,.5);
@@ -147,23 +159,27 @@ body.mobile #mobile-ui{display:block}
   border-color:#fff;
 }
 .mob-btn-big{
-  width:82px;height:82px;grid-column:span 1;
+  width:82px;height:82px;
   font-size:34px;
   background:rgba(30,60,30,.60);
   border-color:rgba(126,200,80,.7);
+  align-self:end;                     /* прижат к нижнему краю своей ячейки */
+  justify-self:end;
 }
 
 /* ---------- HUD на мобильных ---------- */
-body.mobile #hotbar{
-  bottom:auto;top:70px;gap:3px;padding:4px;
-  max-width:calc(100vw - 100px);flex-wrap:wrap;justify-content:center;
-}
-body.mobile .slot{width:40px;height:40px}
-body.mobile .slot .num{font-size:9px;top:0;left:2px}
+/* Хотбар теперь ближе к сердечкам: сердца на top:14, хотбар на top:42 */
 body.mobile #health{
   bottom:auto;top:14px;left:50%;transform:translateX(-50%);
   padding:3px 6px;
 }
+body.mobile #hotbar{
+  bottom:auto;top:42px;               /* было 70 — теперь ближе */
+  gap:3px;padding:4px;
+  max-width:calc(100vw - 100px);flex-wrap:wrap;justify-content:center;
+}
+body.mobile .slot{width:40px;height:40px}
+body.mobile .slot .num{font-size:9px;top:0;left:2px}
 body.mobile .heart{width:14px;height:12px}
 body.mobile .heart::before,
 body.mobile .heart::after{width:7px;height:11px}
@@ -181,13 +197,15 @@ body.mobile #crosshair{opacity:.7}
   #joystick{width:110px;height:110px;left:16px;bottom:16px}
   #joystick-stick{width:48px;height:48px;margin:-24px 0 0 -24px}
   #mob-buttons{right:14px;bottom:16px;
-    grid-template-columns:repeat(2, 52px);grid-auto-rows:52px;gap:8px}
+    grid-template-columns:repeat(2, 52px);
+    grid-template-rows:52px 68px;
+    gap:8px}
   .mob-btn{width:52px;height:52px;font-size:22px}
   .mob-btn-big{width:68px;height:68px;font-size:28px}
 }
 
 /* ============================================================
-   КНОПКА МЕНЮ — видна только на мобильных, правый верхний угол
+   КНОПКА МЕНЮ
    ============================================================ */
 #btn-menu{
   display:none;
@@ -216,7 +234,7 @@ body.mobile #crosshair{opacity:.7}
 body.mobile #btn-menu{display:flex}
 
 /* ============================================================
-   КНОПКА НАСТРОЕК — видна только на мобильных, слева от меню
+   КНОПКА НАСТРОЕК
    ============================================================ */
 #btn-settings{
   display:none;
