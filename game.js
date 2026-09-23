@@ -3,8 +3,7 @@
    + МОБИЛЬНАЯ ПОДДЕРЖКА
    + НАСТРОЙКИ: громкость, полный экран, перетаскивание
    + ОБРАБОТКА ПОТЕРИ WebGL-КОНТЕКСТА
-     (чёрный экран на телефоне после выхода из fullscreen —
-     пересобираем сцену при webglcontextrestored)
+   + В ПОЛЁТЕ на телефоне: ↑ — вверх, ↓ — вниз
    ============================================================ */
 (function () {
 'use strict';
@@ -41,7 +40,7 @@ const generateWorld = MC.generateWorld;
 const buildChunk = MC.buildChunk, buildAllChunks = MC.buildAllChunks;
 const rebuildAround = MC.rebuildAround, rebuildAll = MC.rebuildAll;
 
-const GAME_VERSION = 'V2.1.2.TEST';
+const GAME_VERSION = 'V2.1.3';
 
 const isMobile = ('ontouchstart' in window) ||
                  (navigator.maxTouchPoints > 0) ||
@@ -117,12 +116,6 @@ window.addEventListener('resize', () => {
   clampSettingsPosition();
 });
 
-/* ---------- обработка потери WebGL-контекста ----------
-   Актуально для мобильных: при выходе из fullscreen или
-   при переключении приложения GPU-контекст может быть потерян.
-   Без обработки сцена становится чёрной. Мы ловим события,
-   и когда браузер восстановит контекст — полностью
-   пересобираем меши, перезаливаем текстуры. */
 let pendingRecover = false;
 
 renderer.domElement.addEventListener('webglcontextlost', function (e) {
@@ -135,29 +128,21 @@ renderer.domElement.addEventListener('webglcontextrestored', function () {
   pendingRecover = true;
 }, false);
 
-/* Дополнительная страховка: при возврате к вкладке — форсируем
-   перерисовку, а если контекст потерян, восстановление произойдёт
-   автоматически по событию выше. */
 document.addEventListener('visibilitychange', function () {
   if (!document.hidden) {
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.render(scene, camera);
+    try { renderer.render(scene, camera); } catch (e) {}
   }
 });
 
-/* Полная пересборка GPU-ресурсов. Вызывается из главного цикла,
-   когда всё уже создано (текстуры, облака, мобы, чанки). */
 function recoverGL() {
   try {
-    // 1. Атлас блоков
     if (MC.atlasTexture) MC.atlasTexture.needsUpdate = true;
 
-    // 2. Трещины
     for (let i = 0; i < crackTextures.length; i++) {
       crackTextures[i].needsUpdate = true;
     }
 
-    // 3. Облака — все текстуры и материалы
     if (clouds && clouds.materials) {
       for (let i = 0; i < clouds.materials.length; i++) {
         const m = clouds.materials[i];
@@ -166,13 +151,9 @@ function recoverGL() {
       }
     }
 
-    // 4. Чанки — с нуля (старые геометрии и меши уже невалидны)
     if (MC.rebuildAll) MC.rebuildAll();
-
-    // 5. Текстуры мобов
     if (MOBS.rebuildTextures) MOBS.rebuildTextures();
 
-    // 6. Полный сброс внутренних буферов рендерера и перерисовка
     if (renderer.resetState) renderer.resetState();
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.render(scene, camera);
@@ -467,18 +448,15 @@ fsCheckbox.addEventListener('change', function () {
 });
 document.addEventListener('fullscreenchange', function () {
   fsCheckbox.checked = isFullscreen();
-  // после выхода/входа из fullscreen может произойти потеря контекста —
-  // подстрахуемся принудительной перерисовкой
   setTimeout(function () {
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.render(scene, camera);
+    try { renderer.render(scene, camera); } catch (e) {}
   }, 100);
 });
 document.addEventListener('webkitfullscreenchange', function () {
   fsCheckbox.checked = isFullscreen();
 });
 
-/* ---------- открытие/закрытие панели ---------- */
 let wasInGameBeforeSettings = false;
 let panelJustDragged = false;
 
@@ -525,7 +503,6 @@ document.addEventListener('keydown', function (e) {
   }
 });
 
-/* ---------- перетаскивание панели (только ПК) ---------- */
 const settingsDragHandle = document.getElementById('settings-drag');
 
 function clampSettingsPosition() {
@@ -897,7 +874,7 @@ document.addEventListener('wheel', (e) => {
 /* ============================================================
    4.1. МОБИЛЬНОЕ УПРАВЛЕНИЕ
    ============================================================ */
-const mobileInput = { active: false, mx: 0, my: 0, sprint: false };
+const mobileInput = { active: false, mx: 0, my: 0, sprint: false, descend: false };
 
 if (isMobile) {
   const joyEl = document.getElementById('joystick');
@@ -995,6 +972,7 @@ if (isMobile) {
   const btnPlace = document.getElementById('btn-place');
   const btnJump  = document.getElementById('btn-jump');
   const btnFly   = document.getElementById('btn-fly');
+  const btnDown  = document.getElementById('btn-down');
   const btnMenu  = document.getElementById('btn-menu');
 
   function bindHold(btn, onDown, onUp) {
@@ -1037,6 +1015,11 @@ if (isMobile) {
     function () { keys['Space'] = false; }
   );
 
+  bindHold(btnDown,
+    function () { if (!dead && locked) mobileInput.descend = true; },
+    function () { mobileInput.descend = false; }
+  );
+
   if (btnFly) {
     btnFly.addEventListener('touchstart', function (e) {
       e.preventDefault(); e.stopPropagation();
@@ -1057,6 +1040,7 @@ if (isMobile) {
         menu.style.display = 'flex';
         for (const k in keys) keys[k] = false;
         mouseDown[0] = false;
+        mobileInput.descend = false;
         stopBreaking();
         joyReset();
       }
@@ -1431,20 +1415,21 @@ function update(dt) {
 
     if (player.fly) {
       const sp = ctrl ? 26 : 12;
+      player.vel.x = _wish.x * sp;
+      player.vel.z = _wish.z * sp;
+
       if (isMobile) {
-        player.vel.x = _wish.x * sp;
-        player.vel.z = _wish.z * sp;
-        let vy = -mobileInput.my * sp;
-        if (!mobileInput.active) { player.vel.x = 0; player.vel.z = 0; vy = 0; }
+        let vy = 0;
+        if (keys['Space'])            vy = sp;
+        if (mobileInput.descend)      vy = -sp;
         player.vel.y = vy;
       } else {
-        player.vel.x = _wish.x * sp;
-        player.vel.z = _wish.z * sp;
         let vy = 0;
         if (keys['Space']) vy += sp;
         if (shift)         vy -= sp;
         player.vel.y = vy;
       }
+
       player.onGround = false;
       stepAcc = 0;
       fovTarget = ctrl ? FLY_FOV + 8 : FLY_FOV;
@@ -1586,7 +1571,6 @@ function loop(now) {
     fpsAcc = 0; fpsCount = 0;
   }
 
-  /* ---- восстановление после потери WebGL-контекста ---- */
   if (pendingRecover) {
     pendingRecover = false;
     recoverGL();
@@ -1605,7 +1589,7 @@ function loop(now) {
   try {
     renderer.render(scene, camera);
   } catch (e) {
-    // При потере контекста render может кидать ошибку — просто ждём восстановления
+    // при потере контекста render может кинуть — ждём восстановления
   }
 }
 

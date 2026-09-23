@@ -69,6 +69,7 @@ body.mobile canvas{touch-action:none}
   line-height:1.5;background:rgba(126,200,80,.08);
   padding:10px 16px;border-radius:10px;
   border:1px solid rgba(126,200,80,.2)}
+.touch-note b{color:#7ec850}
 body.mobile .touch-note{display:block}
 .btn{background:linear-gradient(#6fbf3f,#4e9128);border:none;color:#fff;
   padding:14px 42px;font-size:18px;border-radius:8px;cursor:pointer;
@@ -122,11 +123,15 @@ body.mobile #mobile-ui{display:block}
   transition:transform .05s linear;will-change:transform;
 }
 
+/* Сетка 2×3:
+     [ ⛏ break ]  [ ▣ place ]
+     [ ✈ fly   ]  [ ↑ jump  ]
+     [         ]  [ ↓ down  ] */
 #mob-buttons{
   position:absolute;right:20px;bottom:24px;
   display:grid;
   grid-template-columns:repeat(2, 62px);
-  grid-template-rows:62px 62px;
+  grid-template-rows:62px 62px 62px;
   gap:10px;
   pointer-events:auto;
 }
@@ -134,6 +139,7 @@ body.mobile #mobile-ui{display:block}
 #btn-place { grid-column:2; grid-row:1; }
 #btn-fly   { grid-column:1; grid-row:2; }
 #btn-jump  { grid-column:2; grid-row:2; }
+#btn-down  { grid-column:2; grid-row:3; }
 
 .mob-btn{
   width:62px;height:62px;border-radius:50%;
@@ -161,13 +167,14 @@ body.mobile #mobile-ui{display:block}
   border-color:rgba(126,200,80,.7);
 }
 
+/* Кнопка спуска — синеватый акцент, чтобы отличалась от подъёма */
+#btn-down{
+  background:rgba(30,40,60,.60);
+  border-color:rgba(126,170,220,.7);
+}
+
 /* ============================================================
    HUD НА МОБИЛЬНЫХ
-   ------------------------------------------------------------
-   Все 11 слотов хотбара в ОДНУ строку. Слоты уменьшены
-   до 30px — суммарная ширина ≈ 11×(30+4)+padding ≈ 400 px,
-   это помещается даже на узких телефонах (iPhone SE 320 px
-   с учётом скролла справится через horizontal-scroll).
    ============================================================ */
 body.mobile #health{
   bottom:auto;
@@ -181,8 +188,6 @@ body.mobile .heart::before,
 body.mobile .heart::after{width:6px;height:10px}
 body.mobile .heart::before{left:6px}
 
-/* Хотбар — одна строка, при нехватке места — горизонтальный скролл,
-   но без переноса на 2-ю строку */
 body.mobile #hotbar{
   bottom:auto;
   top:34px;
@@ -191,19 +196,19 @@ body.mobile #hotbar{
   gap:2px;
   padding:3px;
   max-width:calc(100vw - 16px);
-  flex-wrap:nowrap;                  /* без переноса */
+  flex-wrap:nowrap;
   overflow-x:auto;
   overflow-y:hidden;
   justify-content:flex-start;
   -webkit-overflow-scrolling:touch;
-  scrollbar-width:none;              /* Firefox */
+  scrollbar-width:none;
 }
 body.mobile #hotbar::-webkit-scrollbar{display:none}
 
 body.mobile .slot{
   width:30px;
   height:30px;
-  flex-shrink:0;                     /* чтобы не сжимались */
+  flex-shrink:0;
   border-width:1.5px;
   border-radius:4px;
 }
@@ -213,12 +218,11 @@ body.mobile .slot .num{
   left:2px;
 }
 
-/* Инфо (XYZ/FPS) — сразу под хотбаром */
 body.mobile #info{
   font-size:10px;
   top:auto;
   bottom:auto;
-  top:72px;                          /* 34 (хотбар) + 30 (высота) + 8 зазор */
+  top:72px;
   left:50%;
   transform:translateX(-50%);
   text-align:center;
@@ -226,7 +230,6 @@ body.mobile #info{
   white-space:nowrap;
 }
 
-/* Подсказки — ниже инфо */
 body.mobile #hint{
   bottom:auto;
   top:110px;
@@ -239,7 +242,7 @@ body.mobile #crosshair{opacity:.7}
   #joystick-stick{width:48px;height:48px;margin:-24px 0 0 -24px}
   #mob-buttons{right:14px;bottom:16px;
     grid-template-columns:repeat(2, 52px);
-    grid-template-rows:52px 52px;
+    grid-template-rows:52px 52px 52px;
     gap:8px}
   .mob-btn{width:52px;height:52px;font-size:22px}
   .mob-btn-big{width:52px;height:52px;font-size:22px}
