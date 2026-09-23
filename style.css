@@ -153,6 +153,7 @@ body.mobile #mobile-ui{display:block}
   border-color:rgba(126,200,80,.7);
 }
 
+/* Меню — в правом верхнем углу */
 #btn-menu{
   position:absolute;top:12px;right:14px;
   width:46px;height:46px;border-radius:12px;
@@ -165,7 +166,6 @@ body.mobile #mobile-ui{display:block}
   touch-action:none;cursor:pointer;
 }
 #btn-menu:active{background:rgba(126,200,80,.75);transform:scale(.95)}
-body.mobile #btn-menu{right:70px}
 
 body.mobile #hotbar{
   bottom:auto;top:70px;gap:3px;padding:4px;
@@ -223,6 +223,10 @@ body.mobile #crosshair{opacity:.7}
   background:rgba(126,200,80,.75);
   border-color:#fff;
 }
+
+/* На мобильных: настройки — СЛЕВА от кнопки меню.
+   Кнопка меню — в правом верхнем углу (right:14px),
+   кнопка настроек — сразу слева от неё (right:70px). */
 body.mobile #btn-settings{
   display:flex;
   right:70px;
@@ -247,7 +251,6 @@ body.mobile #btn-settings{
 #settings-panel.open{display:block}
 body.mobile #settings-panel{z-index:16}
 
-/* Заголовок — «ручка» для перетаскивания (только ПК) */
 .settings-title{
   font-size:16px;font-weight:600;letter-spacing:.5px;
   margin-bottom:14px;color:#7ec850;
@@ -308,7 +311,6 @@ body.mobile #settings-panel{
   top:68px;right:14px;left:14px;width:auto;
 }
 
-/* Когда панель перетаскивается — отключаем выделение текста */
 body.settings-dragging{
   cursor:move !important;
   user-select:none !important;
