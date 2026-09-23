@@ -1,17 +1,10 @@
 /* ============================================================
-   game.js — рендерер, игрок, управление, интерфейс, сохранения
-   + анимация ломания блоков
-   + материальные звуки и шаги
-   + невидимые барьеры по краям мира
-   + бег (Shift / двойной W / двойная ↑) и полёт (F) с FOV
-   + мирные мобы (MOBS) со своими текстурами и звуками
-   + здоровье игрока (HP, урон от падения, регенерация, смерть)
-   + 11 слотов хотбара: 1–9, 0, − (снег)
-   + ЛКМ: удар по мобу (урон, отбрасывание, паника)
-   + облака на небе: 26 разных облаков с 8 текстурами
-   + биомы и увеличенный мир (256×256×48)
+   game.js
    + МОБИЛЬНАЯ ПОДДЕРЖКА
-   + НАСТРОЙКИ: громкость, полный экран, перетаскивание панели
+   + НАСТРОЙКИ: громкость, полный экран, перетаскивание
+   + ОБРАБОТКА ПОТЕРИ WebGL-КОНТЕКСТА
+     (чёрный экран на телефоне после выхода из fullscreen —
+     пересобираем сцену при webglcontextrestored)
    ============================================================ */
 (function () {
 'use strict';
@@ -48,7 +41,7 @@ const generateWorld = MC.generateWorld;
 const buildChunk = MC.buildChunk, buildAllChunks = MC.buildAllChunks;
 const rebuildAround = MC.rebuildAround, rebuildAll = MC.rebuildAll;
 
-const GAME_VERSION = 'V2.1.1.TEST';
+const GAME_VERSION = 'V2.1.2.TEST';
 
 const isMobile = ('ontouchstart' in window) ||
                  (navigator.maxTouchPoints > 0) ||
@@ -77,7 +70,10 @@ const SFX = (function () {
 
 const MOBS = (function () {
   const m = window.MOBS;
-  if (m && m.raycast && m.hit) return m;
+  if (m && m.raycast && m.hit) {
+    if (!m.rebuildTextures) m.rebuildTextures = function () {};
+    return m;
+  }
   console.warn('[game.js] mobs.js не загрузился полностью — мобы отключены');
   const noop = function () {};
   return {
@@ -89,7 +85,8 @@ const MOBS = (function () {
     deserialize: noop,
     count: function () { return 0; },
     raycast: function () { return null; },
-    hit: function () { return false; }
+    hit: function () { return false; },
+    rebuildTextures: noop
   };
 })();
 
@@ -119,6 +116,72 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   clampSettingsPosition();
 });
+
+/* ---------- обработка потери WebGL-контекста ----------
+   Актуально для мобильных: при выходе из fullscreen или
+   при переключении приложения GPU-контекст может быть потерян.
+   Без обработки сцена становится чёрной. Мы ловим события,
+   и когда браузер восстановит контекст — полностью
+   пересобираем меши, перезаливаем текстуры. */
+let pendingRecover = false;
+
+renderer.domElement.addEventListener('webglcontextlost', function (e) {
+  e.preventDefault();
+  console.warn('[game.js] WebGL context lost');
+}, false);
+
+renderer.domElement.addEventListener('webglcontextrestored', function () {
+  console.warn('[game.js] WebGL context restored — планирую пересборку');
+  pendingRecover = true;
+}, false);
+
+/* Дополнительная страховка: при возврате к вкладке — форсируем
+   перерисовку, а если контекст потерян, восстановление произойдёт
+   автоматически по событию выше. */
+document.addEventListener('visibilitychange', function () {
+  if (!document.hidden) {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.render(scene, camera);
+  }
+});
+
+/* Полная пересборка GPU-ресурсов. Вызывается из главного цикла,
+   когда всё уже создано (текстуры, облака, мобы, чанки). */
+function recoverGL() {
+  try {
+    // 1. Атлас блоков
+    if (MC.atlasTexture) MC.atlasTexture.needsUpdate = true;
+
+    // 2. Трещины
+    for (let i = 0; i < crackTextures.length; i++) {
+      crackTextures[i].needsUpdate = true;
+    }
+
+    // 3. Облака — все текстуры и материалы
+    if (clouds && clouds.materials) {
+      for (let i = 0; i < clouds.materials.length; i++) {
+        const m = clouds.materials[i];
+        if (m.map) m.map.needsUpdate = true;
+        m.needsUpdate = true;
+      }
+    }
+
+    // 4. Чанки — с нуля (старые геометрии и меши уже невалидны)
+    if (MC.rebuildAll) MC.rebuildAll();
+
+    // 5. Текстуры мобов
+    if (MOBS.rebuildTextures) MOBS.rebuildTextures();
+
+    // 6. Полный сброс внутренних буферов рендерера и перерисовка
+    if (renderer.resetState) renderer.resetState();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.render(scene, camera);
+
+    console.log('[game.js] пересборка после потери контекста завершена');
+  } catch (e) {
+    console.error('[game.js] recoverGL error', e);
+  }
+}
 
 MOBS.init(scene);
 
@@ -233,7 +296,7 @@ const clouds = (function makeClouds() {
   }
 
   scene.add(group);
-  return { group: group, list: list, spread: SPREAD };
+  return { group: group, list: list, spread: SPREAD, materials: materials };
 })();
 
 function updateClouds(dt, pPos) {
@@ -404,6 +467,12 @@ fsCheckbox.addEventListener('change', function () {
 });
 document.addEventListener('fullscreenchange', function () {
   fsCheckbox.checked = isFullscreen();
+  // после выхода/входа из fullscreen может произойти потеря контекста —
+  // подстрахуемся принудительной перерисовкой
+  setTimeout(function () {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.render(scene, camera);
+  }, 100);
 });
 document.addEventListener('webkitfullscreenchange', function () {
   fsCheckbox.checked = isFullscreen();
@@ -922,7 +991,6 @@ if (isMobile) {
   document.addEventListener('touchend', lookEnd);
   document.addEventListener('touchcancel', lookEnd);
 
-  /* ---------- кнопки ---------- */
   const btnBreak = document.getElementById('btn-break');
   const btnPlace = document.getElementById('btn-place');
   const btnJump  = document.getElementById('btn-jump');
@@ -978,7 +1046,6 @@ if (isMobile) {
     }, { passive: false });
   }
 
-  /* Кнопка МЕНЮ на телефоне: открыть/закрыть игровое меню */
   if (btnMenu) {
     btnMenu.addEventListener('touchstart', function (e) {
       e.preventDefault(); e.stopPropagation();
@@ -996,7 +1063,6 @@ if (isMobile) {
     }, { passive: false });
   }
 
-  /* Кнопка НАСТРОЕК на телефоне: открыть/закрыть панель */
   if (settingsBtn) {
     settingsBtn.addEventListener('touchstart', function (e) {
       e.preventDefault(); e.stopPropagation();
@@ -1294,7 +1360,7 @@ function buildChunksAsync(onProgress, onDone) {
             showLoading(false);
             console.log('[game.js] init OK. Игрок:', player.pos.toArray(),
                         '| мобов:', MOBS.count(), '| hp:', hp,
-                        '| mobile:', isMobile, '| volume:', settings.volume);
+                        '| mobile:', isMobile, '| version:', GAME_VERSION);
           }
         );
       } catch (e) {
@@ -1520,6 +1586,12 @@ function loop(now) {
     fpsAcc = 0; fpsCount = 0;
   }
 
+  /* ---- восстановление после потери WebGL-контекста ---- */
+  if (pendingRecover) {
+    pendingRecover = false;
+    recoverGL();
+  }
+
   try {
     update(dt);
   } catch (e) {
@@ -1530,12 +1602,15 @@ function loop(now) {
     'XYZ: ' + player.pos.x.toFixed(1) + ' / ' + player.pos.y.toFixed(1) + ' / ' + player.pos.z.toFixed(1) + '\n' +
     'FPS: ' + fpsVal + '  ·  ' + GAME_VERSION;
 
-  renderer.render(scene, camera);
+  try {
+    renderer.render(scene, camera);
+  } catch (e) {
+    // При потере контекста render может кидать ошибку — просто ждём восстановления
+  }
 }
 
 requestAnimationFrame(loop);
 
-console.log('[game.js] скрипт загружен, размер мира', SX + '×' + SZ + '×' + SY,
-            '| mobile:', isMobile, '| version:', GAME_VERSION);
+console.log('[game.js] скрипт загружен. mobile:', isMobile, '| version:', GAME_VERSION);
 
 })();

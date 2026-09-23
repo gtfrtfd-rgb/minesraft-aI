@@ -1,11 +1,6 @@
 /* ============================================================
    mobs.js — мирные мобы с текстурами, звуками, HP и AI.
 
-   Модели приближены к оригинальному Minecraft.
-
-   Анимация ходьбы: ноги вращаются вокруг верхней точки (pivot),
-   поэтому НЕ отходят от тела — как маятник у настоящих мобов.
-
    AI:
      - прыжок через блок высотой 1
      - горизонтальная скорость сохраняется в прыжке
@@ -18,7 +13,8 @@
      init(scene), update(dt, playerPos),
      spawnInitial(count), spawnAt(type, x, y, z),
      clear(), serialize(), deserialize(arr),
-     count(), raycast(origin, dir, maxDist), hit(mob, dmg, fromX, fromZ)
+     count(), raycast(origin, dir, maxDist), hit(mob, dmg, fromX, fromZ),
+     rebuildTextures()
    }
    ============================================================ */
 window.MOBS = (function () {
@@ -32,7 +28,8 @@ if (!window.MC) {
     spawnInitial: noop, spawnAt: noop,
     clear: noop, serialize: function () { return []; },
     deserialize: noop, count: function () { return 0; },
-    raycast: function () { return null; }, hit: function () { return false; }
+    raycast: function () { return null; }, hit: function () { return false; },
+    rebuildTextures: noop
   };
 }
 
@@ -54,7 +51,7 @@ const SOUND_INTERVAL_MIN = 8;
 const SOUND_INTERVAL_MAX = 16;
 const PANIC_DURATION = 4.0;
 const PANIC_SPEED_MULT = 1.6;
-const LEG_SWING = 0.55;   // амплитуда вращения ног в радианах (~31°)
+const LEG_SWING = 0.55;
 
 /* ============================================================
    ПРОЦЕДУРНЫЕ ТЕКСТУРЫ МОБОВ (16×16, пиксельные)
@@ -215,11 +212,7 @@ function makeBox(w, h, d, color, texKey) {
 
 /* ============================================================
    ОПРЕДЕЛЕНИЯ МОБОВ
-   Все размеры — в блоках (16 px = 1 блок).
-
    Части: [w, h, d, color, x, y, z, isLeg, texKey]
-   Для ног x, y, z — это координаты ЦЕНТРА (mesh position).
-   В buildMobMesh() они конвертируются в pivot-Group сверху.
    ============================================================ */
 const MOB_TYPES = {
 
@@ -235,7 +228,6 @@ const MOB_TYPES = {
       [0.08,  0.08,  0.02,  0x111111,  0.15, 0.875, -0.81,  false, null],
       [0.1,   0.1,   0.08,  0xCC6677, -0.15, 1.02,  -0.5,   false, null],
       [0.1,   0.1,   0.08,  0xCC6677,  0.15, 1.02,  -0.5,   false, null],
-      // ноги — центр по Y = 0.1875 (высота 0.375); при построении pivot будет в 0.375
       [0.25,  0.375, 0.25,  0xCC6677, -0.19, 0.1875, -0.33, true,  'pigLeg'],
       [0.25,  0.375, 0.25,  0xCC6677,  0.19, 0.1875, -0.33, true,  'pigLeg'],
       [0.25,  0.375, 0.25,  0xCC6677, -0.19, 0.1875,  0.33, true,  'pigLeg'],
@@ -293,12 +285,6 @@ const MOB_TYPES = {
 
 /* ============================================================
    СОЗДАНИЕ МОБА
-   ------------------------------------------------------------
-   Ноги строятся особым образом:
-     1) создаём Group-PIVOT в точке верхушки ноги
-     2) меш ноги кладём ВНУТРЬ pivot'а со сдвигом на -h/2
-     3) при анимации крутим pivot.rotation.x — нога колеблется
-        как маятник, никогда не отрываясь от тела
    ============================================================ */
 function buildMobMesh(type) {
   const def = MOB_TYPES[type];
@@ -313,7 +299,6 @@ function buildMobMesh(type) {
     const texKey = p[8];
 
     if (isLeg) {
-      // Верх ноги (там, где она соединяется с телом) = y + h/2
       const pivotY = y + h / 2;
       const pivot = new THREE.Group();
       pivot.position.set(x, pivotY, z);
@@ -321,11 +306,7 @@ function buildMobMesh(type) {
       legMesh.position.set(0, -h / 2, 0);
       pivot.add(legMesh);
       group.add(pivot);
-      legs.push({
-        pivot: pivot,
-        // фаза колебания: передне-правая и задне-левая в противофазе
-        dir: (i % 2 === 0) ? 1 : -1
-      });
+      legs.push({ pivot: pivot, dir: (i % 2 === 0) ? 1 : -1 });
     } else {
       const mesh = makeBox(w, h, d, color, texKey);
       mesh.position.set(x, y, z);
@@ -400,7 +381,6 @@ function canJumpOver(mob, axisX, axisZ) {
   const nz = mob.pos.z + axisZ * look;
 
   if (!mobCollides(nx, mob.pos.y, nz, r, h)) return false;
-
   const upY = mob.pos.y + 1.0;
   if (mobCollides(nx, upY, nz, r, h)) return false;
 
@@ -599,7 +579,6 @@ function updateMob(mob, dt) {
     maybePlaySound(mob);
   }
 
-  /* ---------- PANIC ---------- */
   if (mob.panicTimer > 0) {
     mob.panicTimer -= dt;
     if (playerPos) {
@@ -635,13 +614,11 @@ function updateMob(mob, dt) {
     }
   }
 
-  /* ---------- плавный поворот ---------- */
   let dyaw = mob.targetYaw - mob.yaw;
   while (dyaw >  Math.PI) dyaw -= Math.PI * 2;
   while (dyaw < -Math.PI) dyaw += Math.PI * 2;
   mob.yaw += dyaw * Math.min(1, 5 * dt);
 
-  /* ---------- горизонтальная скорость ---------- */
   const speedMult = mob.panicTimer > 0 ? PANIC_SPEED_MULT : 1.0;
   let vx = 0, vz = 0;
   if (mob.walking) {
@@ -649,11 +626,9 @@ function updateMob(mob, dt) {
     vz = -Math.cos(mob.yaw) * def.speed * speedMult;
   }
 
-  /* ---------- гравитация ---------- */
   mob.vel.y -= GRAVITY * dt;
   if (mob.vel.y < -30) mob.vel.y = -30;
 
-  /* ---------- перемещение ---------- */
   const prevVx = mob.vel.x, prevVz = mob.vel.z;
   mob.vel.x = prevVx * Math.max(0, 1 - 4 * dt);
   mob.vel.z = prevVz * Math.max(0, 1 - 4 * dt);
@@ -662,11 +637,9 @@ function updateMob(mob, dt) {
 
   mobMove(mob, totalVx * dt, mob.vel.y * dt, totalVz * dt);
 
-  /* ---------- земля ---------- */
   mob.onGround = mobCollides(mob.pos.x, mob.pos.y - 0.05, mob.pos.z, def.r, def.h);
   if (mob.onGround && mob.vel.y < 0) mob.vel.y = 0;
 
-  /* ---------- детектор застревания ---------- */
   if (mob.walking && mob.onGround && mob.panicTimer <= 0) {
     const movedSq = (mob.pos.x - mob.lastX) * (mob.pos.x - mob.lastX) +
                     (mob.pos.z - mob.lastZ) * (mob.pos.z - mob.lastZ);
@@ -689,11 +662,9 @@ function updateMob(mob, dt) {
   mob.lastX = mob.pos.x;
   mob.lastZ = mob.pos.z;
 
-  /* ---------- анимация ходьбы: ноги ВРАЩАЮТСЯ, не смещаются ---------- */
   if (mob.walking && mob.onGround) {
     mob.walkPhase += dt * 8 * speedMult;
   } else {
-    // плавно останавливаем: при затухании поворот клонится к нулю
     mob.walkPhase *= 0.85;
   }
   const swing = Math.sin(mob.walkPhase) * LEG_SWING;
@@ -702,11 +673,9 @@ function updateMob(mob, dt) {
     leg.pivot.rotation.x = swing * leg.dir;
   }
 
-  /* ---------- трансформ ---------- */
   mob.group.position.copy(mob.pos);
   mob.group.rotation.y = mob.yaw;
 
-  /* ---------- спасательный телепорт ---------- */
   if (mob.pos.y < -10) {
     const ix = Math.floor(mob.pos.x), iz = Math.floor(mob.pos.z);
     if (ix >= 0 && ix < SX && iz >= 0 && iz < SZ) {
@@ -804,6 +773,18 @@ function deserialize(arr) {
   }
 }
 
+/* Пересоздать GPU-ресурсы после потери WebGL-контекста. */
+function rebuildTextures() {
+  for (const key in MOB_TEXTURES) {
+    const t = MOB_TEXTURES[key];
+    if (t && t.needsUpdate !== undefined) t.needsUpdate = true;
+  }
+  MAT_CACHE.forEach(function (m) {
+    if (m.map) m.map.needsUpdate = true;
+    m.needsUpdate = true;
+  });
+}
+
 /* ============================================================
    ПУБЛИЧНОЕ API
    ============================================================ */
@@ -844,7 +825,8 @@ return {
   deserialize: deserialize,
   count: function () { return mobs.length; },
   raycast: raycast,
-  hit: hit
+  hit: hit,
+  rebuildTextures: rebuildTextures
 };
 
 })();
