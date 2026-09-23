@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Minecraft Web</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -16,6 +16,22 @@
 <div id="health"></div>
 <div id="hotbar"></div>
 <div id="hint"></div>
+
+<!-- ---------- МОБИЛЬНОЕ УПРАВЛЕНИЕ ---------- -->
+<div id="mobile-ui">
+  <div id="joystick">
+    <div id="joystick-stick"></div>
+  </div>
+
+  <div id="mob-buttons">
+    <button class="mob-btn" id="btn-break" aria-label="Ломать">⛏</button>
+    <button class="mob-btn" id="btn-place" aria-label="Поставить">▣</button>
+    <button class="mob-btn mob-btn-big" id="btn-jump" aria-label="Прыжок">↑</button>
+    <button class="mob-btn" id="btn-fly" aria-label="Полёт">✈</button>
+  </div>
+
+  <button id="btn-menu" aria-label="Меню">☰</button>
+</div>
 
 <div id="death">
   <h2>ВЫ УМЕРЛИ</h2>
@@ -38,6 +54,7 @@
     <div>Выбор блока</div><div><b>1–9</b>, <b>0</b>, <b>−</b> / колесо</div>
     <div>Выйти из игры</div><div><b>Esc</b></div>
   </div>
+  <div class="touch-note">На телефоне: джойстик слева, кнопки справа.<br>Свайп по экрану — обзор. Тап по слоту — выбор блока.</div>
   <button class="btn" id="startBtn">ИГРАТЬ</button>
   <div class="row">
     <button class="btn sec" id="newBtn">Новый мир</button>

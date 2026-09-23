@@ -10,6 +10,7 @@
    + ЛКМ: удар по мобу (урон, отбрасывание, паника)
    + облака на небе: 26 разных облаков с 8 текстурами
    + биомы и увеличенный мир (256×256×48)
+   + МОБИЛЬНАЯ ПОДДЕРЖКА: джойстик, свайп-обзор, кнопки действий
    ============================================================ */
 (function () {
 'use strict';
@@ -46,7 +47,13 @@ const generateWorld = MC.generateWorld;
 const buildChunk = MC.buildChunk, buildAllChunks = MC.buildAllChunks;
 const rebuildAround = MC.rebuildAround, rebuildAll = MC.rebuildAll;
 
-const GAME_VERSION = 'V2.1';
+const GAME_VERSION = 'V2.1.1.MOBILE TEST';
+
+/* ---------- определение мобильного ---------- */
+const isMobile = ('ontouchstart' in window) ||
+                 (navigator.maxTouchPoints > 0) ||
+                 (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+if (isMobile) document.body.classList.add('mobile');
 
 const SFX = (function () {
   const s = window.SFX;
@@ -96,7 +103,7 @@ scene.fog = new THREE.Fog(0x87ceeb, 90, 220);
 scene.add(chunkGroup);
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.2 : 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
@@ -242,42 +249,25 @@ function updateClouds(dt, pPos) {
 }
 
 /* ============================================================
-   1.1. НЕВИДИМЫЕ БАРЬЕРЫ ПО КРАЯМ МИРА
+   1.1. НЕВИДИМЫЕ БАРЬЕРЫ
    ============================================================ */
 (function makeBorderWalls() {
   const H = 40;
   const mat = new THREE.MeshBasicMaterial({
-    color: 0x7ec850,
-    transparent: true,
-    opacity: 0.10,
-    side: THREE.DoubleSide,
-    depthWrite: false
+    color: 0x7ec850, transparent: true, opacity: 0.10,
+    side: THREE.DoubleSide, depthWrite: false
   });
-
   const geoNS = new THREE.PlaneGeometry(SX, H);
   const geoEW = new THREE.PlaneGeometry(SZ, H);
 
-  const w1 = new THREE.Mesh(geoNS, mat);
-  w1.position.set(SX / 2, H / 2, 0);
-  scene.add(w1);
-
-  const w2 = new THREE.Mesh(geoNS, mat);
-  w2.position.set(SX / 2, H / 2, SZ);
-  scene.add(w2);
-
-  const w3 = new THREE.Mesh(geoEW, mat);
-  w3.rotation.y = Math.PI / 2;
-  w3.position.set(0, H / 2, SZ / 2);
-  scene.add(w3);
-
-  const w4 = new THREE.Mesh(geoEW, mat);
-  w4.rotation.y = Math.PI / 2;
-  w4.position.set(SX, H / 2, SZ / 2);
-  scene.add(w4);
+  const w1 = new THREE.Mesh(geoNS, mat); w1.position.set(SX / 2, H / 2, 0); scene.add(w1);
+  const w2 = new THREE.Mesh(geoNS, mat); w2.position.set(SX / 2, H / 2, SZ); scene.add(w2);
+  const w3 = new THREE.Mesh(geoEW, mat); w3.rotation.y = Math.PI / 2; w3.position.set(0, H / 2, SZ / 2); scene.add(w3);
+  const w4 = new THREE.Mesh(geoEW, mat); w4.rotation.y = Math.PI / 2; w4.position.set(SX, H / 2, SZ / 2); scene.add(w4);
 })();
 
 /* ============================================================
-   1.2. ТРЕЩИНЫ (10 стадий)
+   1.2. ТРЕЩИНЫ
    ============================================================ */
 const CRACK_STAGES = 10;
 
@@ -286,7 +276,6 @@ const CRACK_MAP = (function () {
   const map = new Uint8Array(S * S);
   let seed = 987654;
   const rnd = function () { seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
-
   const arms = 6;
   for (let a = 0; a < arms; a++) {
     let angle = (a / arms) * Math.PI * 2 + (rnd() - 0.5) * 0.6;
@@ -343,12 +332,8 @@ const crackTextures = [];
 for (let s = 1; s <= CRACK_STAGES; s++) crackTextures.push(makeCrackTexture(s));
 
 const crackMat = new THREE.MeshBasicMaterial({
-  map: crackTextures[0],
-  transparent: true,
-  depthWrite: false,
-  polygonOffset: true,
-  polygonOffsetFactor: -1,
-  polygonOffsetUnits: -1
+  map: crackTextures[0], transparent: true, depthWrite: false,
+  polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1
 });
 const crackMesh = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01), crackMat);
 crackMesh.visible = false;
@@ -374,7 +359,6 @@ let hp = MAX_HP;
 let dead = false;
 let lastDamageTime = -99999;
 let regenAcc = 0;
-
 let wasOnGround = true;
 let highestAirY = 0;
 
@@ -395,15 +379,9 @@ function refreshHearts() {
   for (let i = 0; i < HEARTS; i++) {
     const v = hp - i * 2;
     const el = heartEls[i];
-    if (v >= 2) {
-      el.classList.remove('empty', 'half');
-    } else if (v === 1) {
-      el.classList.add('half');
-      el.classList.remove('empty');
-    } else {
-      el.classList.add('empty');
-      el.classList.remove('half');
-    }
+    if (v >= 2) el.classList.remove('empty', 'half');
+    else if (v === 1) { el.classList.add('half'); el.classList.remove('empty'); }
+    else { el.classList.add('empty'); el.classList.remove('half'); }
   }
 }
 
@@ -422,12 +400,10 @@ function damagePlayer(amount, silent) {
   regenAcc = 0;
   refreshHearts();
   flashHurt();
-
   if (!silent) {
     if (hp > 0) SFX.hurt();
     else        SFX.death();
   }
-
   if (hp === 0) die();
 }
 
@@ -457,7 +433,8 @@ function respawnFromDeath() {
   respawn();
   wasOnGround = true;
   highestAirY = player.pos.y;
-  lockPointer();
+  if (!isMobile) lockPointer();
+  else { locked = true; menu.style.display = 'none'; }
 }
 
 respawnBtn.addEventListener('click', function (e) {
@@ -490,7 +467,6 @@ function collides(px, py, pz) {
   if (px + PR > SX) return true;
   if (pz - PR < 0)  return true;
   if (pz + PR > SZ) return true;
-
   const e = 1e-4;
   const x0 = Math.floor(px - PR + e), x1 = Math.floor(px + PR - e);
   const y0 = Math.floor(py + e),      y1 = Math.floor(py + PH - e);
@@ -551,13 +527,8 @@ function toggleFly() {
   player.vel.y = 0;
   wasOnGround = false;
   highestAirY = player.pos.y;
-  if (player.fly) {
-    SFX.flyOn();
-    showHint('Полёт: ВКЛ');
-  } else {
-    SFX.flyOff();
-    showHint('Полёт: ВЫКЛ');
-  }
+  if (player.fly) { SFX.flyOn();  showHint('Полёт: ВКЛ'); }
+  else            { SFX.flyOff(); showHint('Полёт: ВЫКЛ'); }
 }
 
 const menu = document.getElementById('menu');
@@ -565,15 +536,21 @@ const startBtn = document.getElementById('startBtn');
 
 function lockPointer() {
   SFX.resume();
+  if (isMobile) {
+    locked = true;
+    menu.style.display = 'none';
+    return;
+  }
   renderer.domElement.requestPointerLock();
 }
 
 startBtn.addEventListener('click', lockPointer);
 renderer.domElement.addEventListener('click', function () {
-  if (!locked && !dead) lockPointer();
+  if (!isMobile && !locked && !dead) lockPointer();
 });
 
 document.addEventListener('pointerlockchange', () => {
+  if (isMobile) return; // на мобильных pointerlock не используется
   locked = document.pointerLockElement === renderer.domElement;
   menu.style.display = (locked || dead) ? 'none' : 'flex';
   if (!locked) {
@@ -585,6 +562,7 @@ document.addEventListener('pointerlockchange', () => {
 });
 
 document.addEventListener('mousemove', (e) => {
+  if (isMobile) return;
   if (!locked || dead) return;
   yaw   -= e.movementX * 0.0022;
   pitch -= e.movementY * 0.0022;
@@ -595,11 +573,7 @@ document.addEventListener('mousemove', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (dead) return;
-
-  if (e.code === 'KeyF' && !e.repeat) {
-    toggleFly();
-  }
-
+  if (e.code === 'KeyF' && !e.repeat) toggleFly();
   if ((e.code === 'KeyW' || e.code === 'ArrowUp') && !e.repeat) {
     const now = performance.now();
     if (now - lastTap[e.code] < DOUBLE_TAP_MS) {
@@ -608,11 +582,9 @@ document.addEventListener('keydown', (e) => {
     }
     lastTap[e.code] = now;
   }
-
   keys[e.code] = true;
   if (e.code === 'Space') e.preventDefault();
   if (e.code.indexOf('Arrow') === 0) e.preventDefault();
-
   if (e.code.indexOf('Digit') === 0) {
     let n = parseInt(e.code.slice(5), 10);
     if (n === 0) n = 10;
@@ -631,6 +603,7 @@ document.addEventListener('contextmenu', e => e.preventDefault());
 
 let mouseDown = [false, false, false];
 renderer.domElement.addEventListener('mousedown', (e) => {
+  if (isMobile) return;
   if (!locked || dead) return;
   mouseDown[e.button] = true;
   if (e.button === 0) {
@@ -641,18 +614,219 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button === 2) placeBlock();
 });
 renderer.domElement.addEventListener('mouseup', (e) => {
+  if (isMobile) return;
   mouseDown[e.button] = false;
   if (e.button === 0) stopBreaking();
 });
 
 document.addEventListener('wheel', (e) => {
+  if (isMobile) return;
   if (!locked || dead) return;
   const d = e.deltaY > 0 ? 1 : -1;
   selectSlot((selected + d + HOTBAR.length) % HOTBAR.length);
 }, { passive: true });
 
 /* ============================================================
-   5. РЕЙКАСТ И ВЗАИМОДЕЙСТВИЕ
+   4.1. МОБИЛЬНОЕ УПРАВЛЕНИЕ
+   ------------------------------------------------------------
+   Джойстик задаёт вектор движения, свайп по экрану — обзор,
+   кнопки — действия. Всё работает поверх существующей логики.
+   ============================================================ */
+const mobileInput = {
+  active: false,          // двигается ли джойстик
+  mx: 0, my: 0,           // вектор [-1..1] по X / Y
+  sprint: false           // джойстик отведён почти до края
+};
+
+if (isMobile) {
+  /* ---------- джойстик ---------- */
+  const joyEl = document.getElementById('joystick');
+  const stickEl = document.getElementById('joystick-stick');
+  const JOY_RADIUS = 55;    // предел смещения стика (px)
+  const SPRINT_THRESHOLD = 0.85;
+  let joyTouchId = null;
+  let joyCx = 0, joyCy = 0;
+
+  function joyReset() {
+    stickEl.style.transform = 'translate(0px,0px)';
+    mobileInput.active = false;
+    mobileInput.mx = 0;
+    mobileInput.my = 0;
+    mobileInput.sprint = false;
+    joyTouchId = null;
+  }
+
+  function joyStart(e) {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    joyTouchId = t.identifier;
+    const r = joyEl.getBoundingClientRect();
+    joyCx = r.left + r.width / 2;
+    joyCy = r.top + r.height / 2;
+    joyMove(e);
+  }
+
+  function joyMove(e) {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier !== joyTouchId) continue;
+
+      let dx = t.clientX - joyCx;
+      let dy = t.clientY - joyCy;
+      const len = Math.hypot(dx, dy);
+      if (len > JOY_RADIUS) {
+        dx = dx / len * JOY_RADIUS;
+        dy = dy / len * JOY_RADIUS;
+      }
+      stickEl.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+
+      // вектор [-1..1]
+      mobileInput.mx = dx / JOY_RADIUS;
+      mobileInput.my = dy / JOY_RADIUS;
+      mobileInput.active = true;
+      mobileInput.sprint = (Math.hypot(dx, dy) / JOY_RADIUS) > SPRINT_THRESHOLD;
+    }
+  }
+
+  joyEl.addEventListener('touchstart', joyStart, { passive: false });
+  joyEl.addEventListener('touchmove',  joyMove,  { passive: false });
+  joyEl.addEventListener('touchend',    joyReset);
+  joyEl.addEventListener('touchcancel', joyReset);
+
+  /* ---------- обзор: свайп по свободной части экрана ---------- */
+  const LOOK_SENS = 0.005;
+  let lookTouchId = null;
+  let lastLookX = 0, lastLookY = 0;
+
+  function isUIElement(target) {
+    if (!target) return false;
+    return !!(target.closest && target.closest('#joystick, #mob-buttons, #btn-menu, #hotbar, #menu, #death'));
+  }
+
+  document.addEventListener('touchstart', function (e) {
+    if (dead || !locked) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (isUIElement(t.target)) continue;
+      if (lookTouchId === null) {
+        lookTouchId = t.identifier;
+        lastLookX = t.clientX;
+        lastLookY = t.clientY;
+      }
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function (e) {
+    if (dead || !locked) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier !== lookTouchId) continue;
+      const dx = t.clientX - lastLookX;
+      const dy = t.clientY - lastLookY;
+      lastLookX = t.clientX;
+      lastLookY = t.clientY;
+
+      yaw   -= dx * LOOK_SENS;
+      pitch -= dy * LOOK_SENS;
+      const lim = Math.PI / 2 - 0.001;
+      if (pitch >  lim) pitch =  lim;
+      if (pitch < -lim) pitch = -lim;
+    }
+  }, { passive: true });
+
+  function lookEnd(e) {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === lookTouchId) {
+        lookTouchId = null;
+      }
+    }
+  }
+  document.addEventListener('touchend', lookEnd);
+  document.addEventListener('touchcancel', lookEnd);
+
+  /* ---------- кнопки действий ---------- */
+  const btnBreak = document.getElementById('btn-break');
+  const btnPlace = document.getElementById('btn-place');
+  const btnJump  = document.getElementById('btn-jump');
+  const btnFly   = document.getElementById('btn-fly');
+  const btnMenu  = document.getElementById('btn-menu');
+
+  // Ломать: удержание = mouseDown[0] = true
+  function bindHold(btn, onDown, onUp) {
+    btn.addEventListener('touchstart', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      btn.classList.add('pressed');
+      if (onDown) onDown();
+    }, { passive: false });
+    const end = function (e) {
+      e.preventDefault(); e.stopPropagation();
+      btn.classList.remove('pressed');
+      if (onUp) onUp();
+    };
+    btn.addEventListener('touchend', end, { passive: false });
+    btn.addEventListener('touchcancel', end, { passive: false });
+  }
+
+  bindHold(btnBreak,
+    function () {
+      if (dead || !locked) return;
+      mouseDown[0] = true;
+      breaking.active = false;
+      breaking.progress = 0;
+      breaking.stage = 0;
+      // попытка сначала ударить моба
+      if (tryAttackMob() && breaking.active) stopBreaking();
+    },
+    function () {
+      mouseDown[0] = false;
+      stopBreaking();
+    }
+  );
+
+  // Поставить: тап = одно действие
+  btnPlace.addEventListener('touchstart', function (e) {
+    e.preventDefault(); e.stopPropagation();
+    btnPlace.classList.add('pressed');
+    if (!dead && locked) placeBlock();
+    setTimeout(function () { btnPlace.classList.remove('pressed'); }, 120);
+  }, { passive: false });
+
+  // Прыжок: удержание = keys['Space'] = true
+  bindHold(btnJump,
+    function () { if (!dead && locked) keys['Space'] = true; },
+    function () { keys['Space'] = false; }
+  );
+
+  // Полёт: тап = toggleFly
+  btnFly.addEventListener('touchstart', function (e) {
+    e.preventDefault(); e.stopPropagation();
+    btnFly.classList.add('pressed');
+    if (!dead && locked) toggleFly();
+    setTimeout(function () { btnFly.classList.remove('pressed'); }, 120);
+  }, { passive: false });
+
+  // Меню: показать / скрыть
+  btnMenu.addEventListener('touchstart', function (e) {
+    e.preventDefault(); e.stopPropagation();
+    if (menu.style.display === 'flex') {
+      locked = true;
+      menu.style.display = 'none';
+    } else {
+      locked = false;
+      menu.style.display = 'flex';
+      // на всякий случай сбрасываем все входные состояния
+      for (const k in keys) keys[k] = false;
+      mouseDown[0] = false;
+      stopBreaking();
+      joyReset();
+    }
+  }, { passive: false });
+
+  console.log('[game.js] мобильный режим активен');
+}
+
+/* ============================================================
+   5. РЕЙКАСТ
    ============================================================ */
 const _dir = new THREE.Vector3();
 const _hitDir = new THREE.Vector3();
@@ -672,12 +846,7 @@ function raycastBlock() {
 
 let currentTarget = null;
 
-const breaking = {
-  active: false,
-  target: null,
-  progress: 0,
-  stage: 0
-};
+const breaking = { active: false, target: null, progress: 0, stage: 0 };
 
 function stopBreaking() {
   breaking.active = false;
@@ -758,7 +927,7 @@ function placeBlock() {
 }
 
 /* ============================================================
-   6. ИНТЕРФЕЙС: ХОТБАР
+   6. ХОТБАР
    ============================================================ */
 const HOTBAR = [1, 2, 3, 4, 8, 9, 6, 7, 10, 5, 11];
 let selected = 0;
@@ -825,8 +994,7 @@ let worldSeed = 1337;
 function saveGame() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
-      v: 1,
-      seed: worldSeed,
+      v: 1, seed: worldSeed,
       w: u8ToB64(world),
       px: player.pos.x, py: player.pos.y, pz: player.pos.z,
       yaw: yaw, pitch: pitch, fly: player.fly,
@@ -889,7 +1057,6 @@ const loadingTextEl = loadingEl ? loadingEl.querySelector('div') : null;
 function setLoadingText(t) {
   if (loadingTextEl) loadingTextEl.textContent = t;
 }
-
 function showLoading(on) {
   if (loadingEl) loadingEl.style.display = on ? 'flex' : 'none';
 }
@@ -951,7 +1118,8 @@ function buildChunksAsync(onProgress, onDone) {
             highestAirY = player.pos.y;
             showLoading(false);
             console.log('[game.js] init OK. Игрок:', player.pos.toArray(),
-                        '| мобов:', MOBS.count(), '| hp:', hp);
+                        '| мобов:', MOBS.count(), '| hp:', hp,
+                        '| mobile:', isMobile);
           }
         );
       } catch (e) {
@@ -975,34 +1143,47 @@ let fpsAcc = 0, fpsCount = 0, fpsVal = 60;
 const STEP_DIST_WALK   = 1.6;
 const STEP_DIST_SPRINT = 1.25;
 let stepAcc = 0;
-
 let sprintActive = false;
 
 function update(dt) {
   if (attackTimer > 0) attackTimer -= dt;
-
   updateClouds(dt, player.pos);
 
   if (!dead) {
     _fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
     _rgt.set( Math.cos(yaw), 0, -Math.sin(yaw));
     _wish.set(0, 0, 0);
-    if (locked) {
-      if (keys['KeyW']) _wish.add(_fwd);
-      if (keys['KeyS']) _wish.sub(_fwd);
-      if (keys['KeyD']) _wish.add(_rgt);
-      if (keys['KeyA']) _wish.sub(_rgt);
-      if (keys['ArrowUp'])    _wish.add(_fwd);
-      if (keys['ArrowDown'])  _wish.sub(_fwd);
-      if (keys['ArrowRight']) _wish.add(_rgt);
-      if (keys['ArrowLeft'])  _wish.sub(_rgt);
+
+    let moving = false;
+
+    if (isMobile) {
+      /* ---- движение через джойстик ---- */
+      if (mobileInput.active) {
+        const fwdAmt    = -mobileInput.my;   // стик вверх → движение вперёд
+        const strafeAmt =  mobileInput.mx;
+        _wish.x = _fwd.x * fwdAmt + _rgt.x * strafeAmt;
+        _wish.z = _fwd.z * fwdAmt + _rgt.z * strafeAmt;
+        if (_wish.lengthSq() > 1) _wish.normalize();
+        moving = _wish.lengthSq() > 0.001;
+      }
+    } else {
+      /* ---- движение через клавиатуру ---- */
+      if (locked) {
+        if (keys['KeyW']) _wish.add(_fwd);
+        if (keys['KeyS']) _wish.sub(_fwd);
+        if (keys['KeyD']) _wish.add(_rgt);
+        if (keys['KeyA']) _wish.sub(_rgt);
+        if (keys['ArrowUp'])    _wish.add(_fwd);
+        if (keys['ArrowDown'])  _wish.sub(_fwd);
+        if (keys['ArrowRight']) _wish.add(_rgt);
+        if (keys['ArrowLeft'])  _wish.sub(_rgt);
+        moving = _wish.lengthSq() > 0;
+        if (moving) _wish.normalize();
+      }
     }
-    const moving = _wish.lengthSq() > 0;
-    if (moving) _wish.normalize();
 
     const forwardHeld = keys['KeyW'] || keys['ArrowUp'];
     const forwardLock = (keys['KeyW'] && doubleLock.KeyW) || (keys['ArrowUp'] && doubleLock.ArrowUp);
-
     const shift = !!keys['ShiftLeft'];
     const ctrl  = !!keys['ControlLeft'];
 
@@ -1011,17 +1192,30 @@ function update(dt) {
 
     if (player.fly) {
       const sp = ctrl ? 26 : 12;
-      player.vel.x = _wish.x * sp;
-      player.vel.z = _wish.z * sp;
-      let vy = 0;
-      if (keys['Space']) vy += sp;
-      if (shift)         vy -= sp;
-      player.vel.y = vy;
+      if (isMobile) {
+        // в полёте: джойстик даёт горизонталь и вертикаль
+        player.vel.x = _wish.x * sp;
+        player.vel.z = _wish.z * sp;
+        let vy = -mobileInput.my * sp;   // стик вверх → вверх
+        // если джойстик не задействован — зависаем
+        if (!mobileInput.active) { player.vel.x = 0; player.vel.z = 0; vy = 0; }
+        player.vel.y = vy;
+      } else {
+        player.vel.x = _wish.x * sp;
+        player.vel.z = _wish.z * sp;
+        let vy = 0;
+        if (keys['Space']) vy += sp;
+        if (shift)         vy -= sp;
+        player.vel.y = vy;
+      }
       player.onGround = false;
       stepAcc = 0;
       fovTarget = ctrl ? FLY_FOV + 8 : FLY_FOV;
     } else {
-      sprintActive = shift || ctrl || (forwardLock && forwardHeld && moving);
+      // спринт: клавиша Shift/Ctrl, двойной тап, или джойстик до упора
+      sprintActive = shift || ctrl ||
+                     (forwardLock && forwardHeld && moving) ||
+                     (isMobile && mobileInput.sprint && moving);
       const sp = sprintActive ? 7.4 : 4.6;
       const tx = _wish.x * sp, tz = _wish.z * sp;
       const k = player.onGround ? 14 : 3.2;
@@ -1032,6 +1226,7 @@ function update(dt) {
       player.vel.y -= GRAVITY * dt;
       if (player.vel.y < -55) player.vel.y = -55;
 
+      // прыжок: Space (клавиатура) или кнопка Jump (мобильный)
       if (locked && keys['Space'] && player.onGround) {
         player.vel.y = JUMP;
         player.onGround = false;
@@ -1049,11 +1244,10 @@ function update(dt) {
       if (player.onGround && player.vel.y < 0) player.vel.y = 0;
     }
 
+    /* ---- урон от падения ---- */
     if (!player.fly) {
       if (!player.onGround) {
-        if (wasOnGround) {
-          highestAirY = player.pos.y;
-        }
+        if (wasOnGround) highestAirY = player.pos.y;
         if (player.pos.y > highestAirY) highestAirY = player.pos.y;
       } else {
         if (!wasOnGround) {
@@ -1069,6 +1263,7 @@ function update(dt) {
     }
     wasOnGround = player.onGround;
 
+    /* ---- шаги ---- */
     if (!player.fly && player.onGround) {
       const spd = Math.hypot(player.vel.x, player.vel.z);
       if (spd > 0.4) {
@@ -1092,6 +1287,7 @@ function update(dt) {
       stepAcc = 0;
     }
 
+    /* ---- регенерация ---- */
     if (hp > 0 && hp < MAX_HP) {
       const sinceDmg = performance.now() - lastDamageTime;
       if (sinceDmg > REGEN_DELAY_MS) {
@@ -1103,10 +1299,9 @@ function update(dt) {
       }
     }
 
-    if (player.pos.y < -30) {
-      damagePlayer(MAX_HP);
-    }
+    if (player.pos.y < -30) damagePlayer(MAX_HP);
 
+    /* ---- плавное изменение FOV ---- */
     const newFov = camera.fov + (fovTarget - camera.fov) * Math.min(1, 8 * dt);
     if (Math.abs(newFov - camera.fov) > 0.01) {
       camera.fov = newFov;
@@ -1116,6 +1311,7 @@ function update(dt) {
     sprintActive = false;
   }
 
+  /* ---- мобы ---- */
   try {
     MOBS.update(dt, player.pos);
   } catch (e) {
@@ -1134,6 +1330,7 @@ function update(dt) {
     hlBox.visible = false;
   }
 
+  /* ---- атака мобов по удержанию ЛКМ ---- */
   if (locked && mouseDown[0] && !dead) {
     if (tryAttackMob()) {
       if (breaking.active) stopBreaking();
@@ -1175,6 +1372,7 @@ function loop(now) {
 
 requestAnimationFrame(loop);
 
-console.log('[game.js] скрипт загружен, размер мира', SX + '×' + SZ + '×' + SY);
+console.log('[game.js] скрипт загружен, размер мира', SX + '×' + SZ + '×' + SY,
+            '| mobile:', isMobile);
 
 })();

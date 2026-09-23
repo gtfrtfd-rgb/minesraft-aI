@@ -1,7 +1,12 @@
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:#87ceeb;
-  font-family:'Segoe UI',system-ui,sans-serif;user-select:none}
+  font-family:'Segoe UI',system-ui,sans-serif;user-select:none;
+  -webkit-user-select:none;-webkit-tap-highlight-color:transparent}
 canvas{display:block}
+
+/* Отключаем системные жесты на мобильных */
+body.mobile{touch-action:none;overscroll-behavior:none}
+body.mobile canvas{touch-action:none}
 
 #loading{position:fixed;inset:0;display:flex;align-items:center;
   justify-content:center;background:#0a0f19;color:#fff;font-size:20px;
@@ -33,7 +38,7 @@ canvas{display:block}
 .slot .num{position:absolute;top:1px;left:4px;font-size:11px;color:#fff;
   text-shadow:1px 1px 0 #000;font-weight:bold}
 
-/* ---------- здоровье (сердечки) ---------- */
+/* ---------- здоровье ---------- */
 #health{position:fixed;bottom:86px;left:50%;transform:translateX(-50%);
   display:flex;gap:2px;padding:4px 8px;background:rgba(0,0,0,.35);
   border-radius:8px;z-index:5}
@@ -48,24 +53,28 @@ canvas{display:block}
 .heart.empty::after{background:#3a0a0a}
 .heart.half::before{background:#3a0a0a}
 
-/* ---------- информация ---------- */
 #info{position:fixed;top:10px;left:12px;color:#fff;font-size:13px;
   text-shadow:1px 1px 0 #000;z-index:5;line-height:1.5;pointer-events:none}
 
 /* ---------- меню ---------- */
 #menu{position:fixed;inset:0;display:flex;flex-direction:column;
   align-items:center;justify-content:center;background:rgba(10,15,25,.82);
-  color:#fff;z-index:20;text-align:center;padding:20px}
+  color:#fff;z-index:20;text-align:center;padding:20px;overflow-y:auto}
 #menu h1{font-size:52px;letter-spacing:3px;margin-bottom:6px;
   text-shadow:0 4px 0 #3a3a3a,0 0 30px rgba(120,200,255,.5)}
 #menu h1 span{color:#7ec850}
 #menu .sub{opacity:.7;margin-bottom:28px;font-size:15px}
 .controls{display:grid;grid-template-columns:auto auto;gap:8px 26px;
-  font-size:14px;margin-bottom:30px;background:rgba(255,255,255,.06);
+  font-size:14px;margin-bottom:20px;background:rgba(255,255,255,.06);
   padding:18px 26px;border-radius:12px;border:1px solid rgba(255,255,255,.1)}
 .controls b{color:#7ec850;font-weight:600}
 .controls div:nth-child(odd){text-align:right;opacity:.85}
 .controls div:nth-child(even){text-align:left}
+.touch-note{display:none;font-size:13px;opacity:.75;margin-bottom:18px;
+  line-height:1.5;background:rgba(126,200,80,.08);
+  padding:10px 16px;border-radius:10px;
+  border:1px solid rgba(126,200,80,.2)}
+body.mobile .touch-note{display:block}
 .btn{background:linear-gradient(#6fbf3f,#4e9128);border:none;color:#fff;
   padding:14px 42px;font-size:18px;border-radius:8px;cursor:pointer;
   font-weight:600;letter-spacing:1px;box-shadow:0 4px 0 #2f5a17;
@@ -91,3 +100,140 @@ canvas{display:block}
 #death .sub{opacity:.7;margin-bottom:36px;font-size:15px}
 #death .btn{background:linear-gradient(#a03030,#701818);box-shadow:0 4px 0 #3a0808}
 #death .btn:hover{filter:brightness(1.15)}
+
+/* ============================================================
+   МОБИЛЬНОЕ УПРАВЛЕНИЕ
+   ============================================================ */
+#mobile-ui{display:none;position:fixed;inset:0;pointer-events:none;z-index:10}
+body.mobile #mobile-ui{display:block}
+
+/* ---------- джойстик ---------- */
+#joystick{
+  position:absolute;
+  left:24px;
+  bottom:24px;
+  width:140px;height:140px;
+  border-radius:50%;
+  background:radial-gradient(circle at 50% 50%,
+    rgba(255,255,255,.10) 0%, rgba(255,255,255,.03) 70%, rgba(255,255,255,0) 100%);
+  border:2px solid rgba(255,255,255,.25);
+  pointer-events:auto;
+  touch-action:none;
+  box-shadow:0 0 20px rgba(0,0,0,.3) inset;
+}
+#joystick-stick{
+  position:absolute;
+  left:50%;top:50%;
+  width:60px;height:60px;margin:-30px 0 0 -30px;
+  border-radius:50%;
+  background:radial-gradient(circle at 40% 35%,
+    rgba(255,255,255,.75) 0%, rgba(255,255,255,.35) 100%);
+  border:2px solid rgba(255,255,255,.55);
+  box-shadow:0 2px 8px rgba(0,0,0,.4);
+  pointer-events:none;
+  transition:transform .05s linear;
+  will-change:transform;
+}
+
+/* ---------- кнопки мобов ---------- */
+#mob-buttons{
+  position:absolute;
+  right:20px;
+  bottom:24px;
+  display:grid;
+  grid-template-columns:repeat(2, 62px);
+  grid-auto-rows:62px;
+  gap:10px;
+  pointer-events:auto;
+}
+.mob-btn{
+  width:62px;height:62px;
+  border-radius:50%;
+  border:2px solid rgba(255,255,255,.5);
+  background:rgba(20,30,40,.55);
+  color:#fff;font-size:26px;font-weight:600;
+  display:flex;align-items:center;justify-content:center;
+  text-shadow:0 1px 0 rgba(0,0,0,.6);
+  box-shadow:0 2px 6px rgba(0,0,0,.4);
+  -webkit-tap-highlight-color:transparent;
+  touch-action:none;
+  transition:transform .07s, background .07s, border-color .07s;
+  cursor:pointer;
+}
+.mob-btn:active,
+.mob-btn.pressed{
+  transform:scale(.92);
+  background:rgba(126,200,80,.75);
+  border-color:#fff;
+}
+.mob-btn-big{
+  width:82px;height:82px;
+  grid-column:span 1;
+  font-size:34px;
+  background:rgba(30,60,30,.60);
+  border-color:rgba(126,200,80,.7);
+}
+
+/* ---------- кнопка меню ---------- */
+#btn-menu{
+  position:absolute;
+  top:12px;right:14px;
+  width:46px;height:46px;
+  border-radius:12px;
+  border:2px solid rgba(255,255,255,.4);
+  background:rgba(20,30,40,.55);
+  color:#fff;font-size:22px;
+  display:flex;align-items:center;justify-content:center;
+  pointer-events:auto;
+  -webkit-tap-highlight-color:transparent;
+  touch-action:none;
+  cursor:pointer;
+}
+#btn-menu:active{background:rgba(126,200,80,.75);transform:scale(.95)}
+
+/* ---------- адаптация HUD на мобильных ---------- */
+body.mobile #hotbar{
+  bottom:auto;
+  top:70px;
+  gap:3px;
+  padding:4px;
+  max-width:calc(100vw - 100px);
+  flex-wrap:wrap;
+  justify-content:center;
+}
+body.mobile .slot{width:40px;height:40px}
+body.mobile .slot .num{font-size:9px;top:0;left:2px}
+body.mobile #health{
+  bottom:auto;
+  top:14px;
+  left:50%;
+  transform:translateX(-50%);
+  padding:3px 6px;
+}
+body.mobile .heart{width:14px;height:12px}
+body.mobile .heart::before,
+body.mobile .heart::after{width:7px;height:11px}
+body.mobile .heart::before{left:7px}
+body.mobile #info{
+  font-size:11px;
+  top:auto;
+  bottom:calc(24px + 140px + 12px);
+  left:50%;
+  transform:translateX(-50%);
+  text-align:center;
+  line-height:1.4;
+}
+body.mobile #hint{
+  bottom:calc(24px + 140px + 40px);
+}
+body.mobile #crosshair{opacity:.7}
+
+/* Очень маленькие экраны */
+@media (max-height: 500px){
+  #joystick{width:110px;height:110px;left:16px;bottom:16px}
+  #joystick-stick{width:48px;height:48px;margin:-24px 0 0 -24px}
+  #mob-buttons{right:14px;bottom:16px;
+    grid-template-columns:repeat(2, 52px);grid-auto-rows:52px;gap:8px}
+  .mob-btn{width:52px;height:52px;font-size:22px}
+  .mob-btn-big{width:68px;height:68px;font-size:28px}
+}
