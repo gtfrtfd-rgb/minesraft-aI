@@ -411,7 +411,7 @@ document.addEventListener('webkitfullscreenchange', function () {
 
 /* ---------- открытие/закрытие панели ---------- */
 let wasInGameBeforeSettings = false;
-let panelJustDragged = false;   // защита от закрытия панели сразу после drag
+let panelJustDragged = false;
 
 function toggleSettings(force) {
   const open = settingsPanel.classList.contains('open');
@@ -444,7 +444,6 @@ settingsBtn.addEventListener('click', function (e) {
 });
 
 document.addEventListener('click', function (e) {
-  // клик сразу после перетаскивания не должен закрывать панель
   if (panelJustDragged) { panelJustDragged = false; return; }
   if (!settingsPanel.classList.contains('open')) return;
   if (e.target.closest && e.target.closest('#settings-panel, #btn-settings')) return;
@@ -457,7 +456,7 @@ document.addEventListener('keydown', function (e) {
   }
 });
 
-/* ---------- перетаскивание панели за заголовок (только ПК) ---------- */
+/* ---------- перетаскивание панели (только ПК) ---------- */
 const settingsDragHandle = document.getElementById('settings-drag');
 
 function clampSettingsPosition() {
@@ -484,7 +483,7 @@ if (!isMobile && settingsDragHandle) {
   let dragOffX = 0, dragOffY = 0;
 
   function switchToLeftTop() {
-    if (settingsPanel.style.left) return;   // уже переключились
+    if (settingsPanel.style.left) return;
     const r = settingsPanel.getBoundingClientRect();
     settingsPanel.style.left  = r.left + 'px';
     settingsPanel.style.top   = r.top  + 'px';
@@ -492,7 +491,7 @@ if (!isMobile && settingsDragHandle) {
   }
 
   settingsDragHandle.addEventListener('mousedown', function (e) {
-    if (e.button !== 0) return;             // только ЛКМ
+    if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -530,7 +529,6 @@ if (!isMobile && settingsDragHandle) {
     if (!dragging) return;
     dragging = false;
     document.body.classList.remove('settings-dragging');
-    // сбрасываем флаг чуть позже, чтобы click-outside не успел сработать
     setTimeout(function () { panelJustDragged = false; }, 0);
   });
 }
@@ -924,6 +922,7 @@ if (isMobile) {
   document.addEventListener('touchend', lookEnd);
   document.addEventListener('touchcancel', lookEnd);
 
+  /* ---------- кнопки ---------- */
   const btnBreak = document.getElementById('btn-break');
   const btnPlace = document.getElementById('btn-place');
   const btnJump  = document.getElementById('btn-jump');
@@ -931,6 +930,7 @@ if (isMobile) {
   const btnMenu  = document.getElementById('btn-menu');
 
   function bindHold(btn, onDown, onUp) {
+    if (!btn) return;
     btn.addEventListener('touchstart', function (e) {
       e.preventDefault(); e.stopPropagation();
       btn.classList.add('pressed');
@@ -955,39 +955,54 @@ if (isMobile) {
     function () { mouseDown[0] = false; stopBreaking(); }
   );
 
-  btnPlace.addEventListener('touchstart', function (e) {
-    e.preventDefault(); e.stopPropagation();
-    btnPlace.classList.add('pressed');
-    if (!dead && locked) placeBlock();
-    setTimeout(function () { btnPlace.classList.remove('pressed'); }, 120);
-  }, { passive: false });
+  if (btnPlace) {
+    btnPlace.addEventListener('touchstart', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      btnPlace.classList.add('pressed');
+      if (!dead && locked) placeBlock();
+      setTimeout(function () { btnPlace.classList.remove('pressed'); }, 120);
+    }, { passive: false });
+  }
 
   bindHold(btnJump,
     function () { if (!dead && locked) keys['Space'] = true; },
     function () { keys['Space'] = false; }
   );
 
-  btnFly.addEventListener('touchstart', function (e) {
-    e.preventDefault(); e.stopPropagation();
-    btnFly.classList.add('pressed');
-    if (!dead && locked) toggleFly();
-    setTimeout(function () { btnFly.classList.remove('pressed'); }, 120);
-  }, { passive: false });
+  if (btnFly) {
+    btnFly.addEventListener('touchstart', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      btnFly.classList.add('pressed');
+      if (!dead && locked) toggleFly();
+      setTimeout(function () { btnFly.classList.remove('pressed'); }, 120);
+    }, { passive: false });
+  }
 
-  btnMenu.addEventListener('touchstart', function (e) {
-    e.preventDefault(); e.stopPropagation();
-    if (menu.style.display === 'flex') {
-      locked = true;
-      menu.style.display = 'none';
-    } else {
-      locked = false;
-      menu.style.display = 'flex';
-      for (const k in keys) keys[k] = false;
-      mouseDown[0] = false;
-      stopBreaking();
-      joyReset();
-    }
-  }, { passive: false });
+  /* Кнопка МЕНЮ на телефоне: открыть/закрыть игровое меню */
+  if (btnMenu) {
+    btnMenu.addEventListener('touchstart', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      if (menu.style.display === 'flex') {
+        locked = true;
+        menu.style.display = 'none';
+      } else {
+        locked = false;
+        menu.style.display = 'flex';
+        for (const k in keys) keys[k] = false;
+        mouseDown[0] = false;
+        stopBreaking();
+        joyReset();
+      }
+    }, { passive: false });
+  }
+
+  /* Кнопка НАСТРОЕК на телефоне: открыть/закрыть панель */
+  if (settingsBtn) {
+    settingsBtn.addEventListener('touchstart', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      toggleSettings();
+    }, { passive: false });
+  }
 
   console.log('[game.js] мобильный режим активен');
 }

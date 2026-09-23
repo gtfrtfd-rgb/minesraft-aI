@@ -96,7 +96,7 @@ body.mobile .touch-note{display:block}
 #death .btn:hover{filter:brightness(1.15)}
 
 /* ============================================================
-   МОБИЛЬНОЕ УПРАВЛЕНИЕ
+   МОБИЛЬНОЕ УПРАВЛЕНИЕ — джойстик и кнопки действий
    ============================================================ */
 #mobile-ui{display:none;position:fixed;inset:0;pointer-events:none;z-index:10}
 body.mobile #mobile-ui{display:block}
@@ -153,20 +153,7 @@ body.mobile #mobile-ui{display:block}
   border-color:rgba(126,200,80,.7);
 }
 
-/* Меню — в правом верхнем углу */
-#btn-menu{
-  position:absolute;top:12px;right:14px;
-  width:46px;height:46px;border-radius:12px;
-  border:2px solid rgba(255,255,255,.4);
-  background:rgba(20,30,40,.55);
-  color:#fff;font-size:22px;
-  display:flex;align-items:center;justify-content:center;
-  pointer-events:auto;
-  -webkit-tap-highlight-color:transparent;
-  touch-action:none;cursor:pointer;
-}
-#btn-menu:active{background:rgba(126,200,80,.75);transform:scale(.95)}
-
+/* ---------- HUD на мобильных ---------- */
 body.mobile #hotbar{
   bottom:auto;top:70px;gap:3px;padding:4px;
   max-width:calc(100vw - 100px);flex-wrap:wrap;justify-content:center;
@@ -200,39 +187,63 @@ body.mobile #crosshair{opacity:.7}
 }
 
 /* ============================================================
-   КНОПКА И ПАНЕЛЬ НАСТРОЕК
+   КНОПКА МЕНЮ — видна только на мобильных, правый верхний угол
    ============================================================ */
-#btn-settings{
+#btn-menu{
   display:none;
   position:fixed;top:12px;right:14px;
   width:46px;height:46px;border-radius:12px;
-  border:2px solid rgba(255,255,255,.4);
-  background:rgba(20,30,40,.55);
+  border:2px solid rgba(255,255,255,.5);
+  background:rgba(20,30,40,.65);
+  color:#fff;font-size:22px;font-weight:600;
+  align-items:center;justify-content:center;
+  z-index:16;
+  cursor:pointer;
+  pointer-events:auto;
+  -webkit-tap-highlight-color:transparent;
+  touch-action:manipulation;
+  transition:transform .07s, background .07s, border-color .07s;
+  box-shadow:0 2px 6px rgba(0,0,0,.4);
+  font-family:inherit;
+  line-height:1;
+  padding:0;
+}
+#btn-menu:active{
+  transform:scale(.92);
+  background:rgba(126,200,80,.75);
+  border-color:#fff;
+}
+body.mobile #btn-menu{display:flex}
+
+/* ============================================================
+   КНОПКА НАСТРОЕК — видна только на мобильных, слева от меню
+   ============================================================ */
+#btn-settings{
+  display:none;
+  position:fixed;top:12px;right:70px;
+  width:46px;height:46px;border-radius:12px;
+  border:2px solid rgba(255,255,255,.5);
+  background:rgba(20,30,40,.65);
   color:#fff;font-size:22px;
   align-items:center;justify-content:center;
   cursor:pointer;
-  z-index:40;
+  z-index:16;
+  pointer-events:auto;
   -webkit-tap-highlight-color:transparent;
   transition:transform .08s, background .08s, border-color .08s;
   box-shadow:0 2px 6px rgba(0,0,0,.4);
 }
-#btn-settings:hover{background:rgba(30,45,60,.75)}
 #btn-settings:active,
 #btn-settings.active{
   transform:scale(.95);
   background:rgba(126,200,80,.75);
   border-color:#fff;
 }
+body.mobile #btn-settings{display:flex; right:70px}
 
-/* На мобильных: настройки — СЛЕВА от кнопки меню.
-   Кнопка меню — в правом верхнем углу (right:14px),
-   кнопка настроек — сразу слева от неё (right:70px). */
-body.mobile #btn-settings{
-  display:flex;
-  right:70px;
-  z-index:15;
-}
-
+/* ============================================================
+   ПАНЕЛЬ НАСТРОЕК
+   ============================================================ */
 #settings-panel{
   position:fixed;top:68px;right:14px;
   width:320px;
@@ -249,7 +260,10 @@ body.mobile #btn-settings{
   -webkit-backdrop-filter:blur(6px);
 }
 #settings-panel.open{display:block}
-body.mobile #settings-panel{z-index:16}
+body.mobile #settings-panel{
+  top:68px;right:14px;left:14px;width:auto;
+  z-index:41;
+}
 
 .settings-title{
   font-size:16px;font-weight:600;letter-spacing:.5px;
@@ -306,10 +320,6 @@ body.mobile .settings-title .drag-grip{display:none}
   margin-top:6px;font-size:11px;opacity:.5;line-height:1.4;
 }
 .settings-hint b{color:#7ec850;font-weight:600}
-
-body.mobile #settings-panel{
-  top:68px;right:14px;left:14px;width:auto;
-}
 
 body.settings-dragging{
   cursor:move !important;
