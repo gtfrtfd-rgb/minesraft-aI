@@ -11,7 +11,7 @@
    + облака на небе: 26 разных облаков с 8 текстурами
    + биомы и увеличенный мир (256×256×48)
    + МОБИЛЬНАЯ ПОДДЕРЖКА
-   + НАСТРОЙКИ: громкость, полный экран
+   + НАСТРОЙКИ: громкость, полный экран, перетаскивание панели
    ============================================================ */
 (function () {
 'use strict';
@@ -117,6 +117,7 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  clampSettingsPosition();
 });
 
 MOBS.init(scene);
@@ -344,7 +345,7 @@ const HARDNESS = {
 };
 
 /* ============================================================
-   1.3. НАСТРОЙКИ (громкость, полный экран)
+   1.3. НАСТРОЙКИ
    ============================================================ */
 const SETTINGS_KEY = 'mcweb_settings_v1';
 
@@ -408,25 +409,131 @@ document.addEventListener('webkitfullscreenchange', function () {
   fsCheckbox.checked = isFullscreen();
 });
 
+/* ---------- открытие/закрытие панели ---------- */
+let wasInGameBeforeSettings = false;
+let panelJustDragged = false;   // защита от закрытия панели сразу после drag
+
 function toggleSettings(force) {
   const open = settingsPanel.classList.contains('open');
   const shouldOpen = (force === undefined) ? !open : force;
-  if (shouldOpen) settingsPanel.classList.add('open');
-  else            settingsPanel.classList.remove('open');
-  settingsBtn.classList.toggle('active', shouldOpen);
+  if (shouldOpen === open) return;
+
+  if (shouldOpen) {
+    wasInGameBeforeSettings = !!document.pointerLockElement;
+    settingsPanel.classList.add('open');
+    settingsBtn.classList.add('active');
+
+    if (!isMobile && document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+    clampSettingsPosition();
+  } else {
+    settingsPanel.classList.remove('open');
+    settingsBtn.classList.remove('active');
+
+    if (!isMobile && wasInGameBeforeSettings && !dead) {
+      lockPointer();
+    }
+    wasInGameBeforeSettings = false;
+  }
 }
+
 settingsBtn.addEventListener('click', function (e) {
   e.stopPropagation();
   toggleSettings();
 });
+
 document.addEventListener('click', function (e) {
+  // клик сразу после перетаскивания не должен закрывать панель
+  if (panelJustDragged) { panelJustDragged = false; return; }
   if (!settingsPanel.classList.contains('open')) return;
   if (e.target.closest && e.target.closest('#settings-panel, #btn-settings')) return;
   toggleSettings(false);
 });
+
 document.addEventListener('keydown', function (e) {
-  if (e.code === 'Escape') toggleSettings(false);
+  if (e.code === 'Escape' && settingsPanel.classList.contains('open')) {
+    toggleSettings(false);
+  }
 });
+
+/* ---------- перетаскивание панели за заголовок (только ПК) ---------- */
+const settingsDragHandle = document.getElementById('settings-drag');
+
+function clampSettingsPosition() {
+  if (!settingsPanel.style.left) return;
+  const r = settingsPanel.getBoundingClientRect();
+  let x = parseFloat(settingsPanel.style.left);
+  let y = parseFloat(settingsPanel.style.top);
+  if (isNaN(x)) x = r.left;
+  if (isNaN(y)) y = r.top;
+
+  const maxX = window.innerWidth  - settingsPanel.offsetWidth;
+  const maxY = window.innerHeight - settingsPanel.offsetHeight;
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  if (x > maxX) x = maxX;
+  if (y > maxY) y = maxY;
+
+  settingsPanel.style.left = x + 'px';
+  settingsPanel.style.top  = y + 'px';
+}
+
+if (!isMobile && settingsDragHandle) {
+  let dragging = false;
+  let dragOffX = 0, dragOffY = 0;
+
+  function switchToLeftTop() {
+    if (settingsPanel.style.left) return;   // уже переключились
+    const r = settingsPanel.getBoundingClientRect();
+    settingsPanel.style.left  = r.left + 'px';
+    settingsPanel.style.top   = r.top  + 'px';
+    settingsPanel.style.right = 'auto';
+  }
+
+  settingsDragHandle.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;             // только ЛКМ
+    e.preventDefault();
+    e.stopPropagation();
+
+    switchToLeftTop();
+
+    const r = settingsPanel.getBoundingClientRect();
+    dragOffX = e.clientX - r.left;
+    dragOffY = e.clientY - r.top;
+
+    dragging = true;
+    panelJustDragged = false;
+    document.body.classList.add('settings-dragging');
+  });
+
+  document.addEventListener('mousemove', function (e) {
+    if (!dragging) return;
+
+    let x = e.clientX - dragOffX;
+    let y = e.clientY - dragOffY;
+
+    const maxX = window.innerWidth  - settingsPanel.offsetWidth;
+    const maxY = window.innerHeight - settingsPanel.offsetHeight;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x > maxX) x = maxX;
+    if (y > maxY) y = maxY;
+
+    settingsPanel.style.left = x + 'px';
+    settingsPanel.style.top  = y + 'px';
+
+    panelJustDragged = true;
+  });
+
+  document.addEventListener('mouseup', function () {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove('settings-dragging');
+    // сбрасываем флаг чуть позже, чтобы click-outside не успел сработать
+    setTimeout(function () { panelJustDragged = false; }, 0);
+  });
+}
 
 /* ============================================================
    2. ЗДОРОВЬЕ ИГРОКА
@@ -628,12 +735,19 @@ function lockPointer() {
 
 startBtn.addEventListener('click', lockPointer);
 renderer.domElement.addEventListener('click', function () {
-  if (!isMobile && !locked && !dead) lockPointer();
+  if (!isMobile && !locked && !dead && !settingsPanel.classList.contains('open')) lockPointer();
 });
 
 document.addEventListener('pointerlockchange', () => {
   if (isMobile) return;
-  locked = document.pointerLockElement === renderer.domElement;
+  const nowLocked = document.pointerLockElement === renderer.domElement;
+
+  if (locked && !nowLocked && settingsPanel.classList.contains('open')) {
+    locked = false;
+    return;
+  }
+
+  locked = nowLocked;
   menu.style.display = (locked || dead) ? 'none' : 'flex';
   if (!locked) {
     for (const k in keys) keys[k] = false;
@@ -655,6 +769,11 @@ document.addEventListener('mousemove', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (dead) return;
+  if (e.code === 'KeyO' && !e.repeat) {
+    e.preventDefault();
+    toggleSettings();
+    return;
+  }
   if (e.code === 'KeyF' && !e.repeat) toggleFly();
   if ((e.code === 'KeyW' || e.code === 'ArrowUp') && !e.repeat) {
     const now = performance.now();
