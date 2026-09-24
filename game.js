@@ -1,16 +1,13 @@
 /* ============================================================
-   game.js
-   + МОБИЛЬНАЯ ПОДДЕРЖКА
-   + НАСТРОЙКИ: громкость, полный экран, перетаскивание
-   + ОБРАБОТКА ПОТЕРИ WebGL-КОНТЕКСТА
-   + ПРИСЕДАНИЕ: Shift на ПК, ↓ на телефоне
-   + В ПОЛЁТЕ на телефоне: ↑ — вверх, ↓ — вниз
-   + Чувствительность камеры на телефоне ×2
-   + Блок нельзя ставить внутрь моба
+   game.js — игровая логика: игрок, здоровье, управление,
+   мобильные кнопки, рейкаст, хотбар, сохранения, главный цикл.
+   Движок (сцену, рендерер, камеру, облака, барьеры, трещины)
+   подключает из render.js через window.RENDER.
    ============================================================ */
 (function () {
 'use strict';
 
+/* ---------- аварийный экран ---------- */
 function fatal(msg) {
   const el = document.getElementById('loading');
   if (el) {
@@ -23,12 +20,17 @@ function fatal(msg) {
   console.error('[game.js] FATAL:', msg);
 }
 
-if (typeof THREE === 'undefined') {
-  fatal('Библиотека three.js не загрузилась. Проверьте подключение к интернету.');
+/* ---------- проверка зависимостей ---------- */
+const R = window.RENDER;
+if (!R || !R.ok) {
+  if (!R) fatal('render.js не загрузился.');
+  else if (R.reason === 'no-three') fatal('Библиотека three.js не загрузилась. Проверьте подключение к интернету.');
+  else if (R.reason === 'no-mc') fatal('world.js не загрузился или упал. Проверьте, что файл лежит рядом с index.html.');
+  else fatal('Не удалось инициализировать движок.');
   return;
 }
 if (!window.MC || !window.MC.generateWorld) {
-  fatal('world.js не загрузился или упал. Проверьте, что файл лежит рядом с index.html.');
+  fatal('world.js не загрузился. Проверьте, что файл лежит рядом с index.html.');
   return;
 }
 
@@ -37,19 +39,33 @@ const SX = MC.SX, SZ = MC.SZ, SY = MC.SY;
 const CHX = MC.CHX, CHZ = MC.CHZ;
 const world = MC.world, IDX = MC.IDX, SAVE_KEY = MC.SAVE_KEY;
 const BLOCKS = MC.BLOCKS, ACOLS = MC.ACOLS;
-const atlasCanvas = MC.atlasCanvas, chunkGroup = MC.chunkGroup;
+const atlasCanvas = MC.atlasCanvas;
 const isSolid = MC.isSolid, highestAt = MC.highestAt;
 const generateWorld = MC.generateWorld;
-const buildChunk = MC.buildChunk, buildAllChunks = MC.buildAllChunks;
+const buildChunk = MC.buildChunk;
 const rebuildAround = MC.rebuildAround, rebuildAll = MC.rebuildAll;
+
+/* ---------- из render.js ---------- */
+const scene = R.scene;
+const renderer = R.renderer;
+const camera = R.camera;
+const isMobile = R.isMobile;
+const BASE_FOV   = R.BASE_FOV;
+const SPRINT_FOV = R.SPRINT_FOV;
+const FLY_FOV    = R.FLY_FOV;
+const crackTextures = R.crackTextures;
+const crackMat  = R.crackMat;
+const crackMesh = R.crackMesh;
+const updateClouds = R.updateClouds;
 
 const GAME_VERSION = 'V2.1.3.2';
 
-const isMobile = ('ontouchstart' in window) ||
-                 (navigator.maxTouchPoints > 0) ||
-                 (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
-if (isMobile) document.body.classList.add('mobile');
+/* ---------- высота глаз: стоя / присев ---------- */
+const EYE_STAND   = 1.62;
+const EYE_CROUCH  = 1.28;
+let   eyeBlend    = 0;
 
+/* ---------- безопасная обёртка SFX ---------- */
 const SFX = (function () {
   const s = window.SFX;
   if (s) {
@@ -70,6 +86,7 @@ const SFX = (function () {
   };
 })();
 
+/* ---------- безопасная обёртка MOBS ---------- */
 const MOBS = (function () {
   const m = window.MOBS;
   if (m && m.raycast && m.hit) {
@@ -94,87 +111,11 @@ const MOBS = (function () {
   };
 })();
 
-/* ============================================================
-   1. СЦЕНА, РЕНДЕРЕР, КАМЕРА
-   ============================================================ */
-const BASE_FOV = 75;
-const SPRINT_FOV = 82;
-const FLY_FOV    = 80;
-
-const EYE_STAND   = 1.62;
-const EYE_CROUCH  = 1.28;
-let   eyeBlend    = 0;
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
-scene.fog = new THREE.Fog(0x87ceeb, 90, 220);
-scene.add(chunkGroup);
-
-const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.2 : 1.5));
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
-
-const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 450);
-camera.rotation.order = 'YXZ';
-
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  clampSettingsPosition();
-});
-
-let pendingRecover = false;
-
-renderer.domElement.addEventListener('webglcontextlost', function (e) {
-  e.preventDefault();
-  console.warn('[game.js] WebGL context lost');
-}, false);
-
-renderer.domElement.addEventListener('webglcontextrestored', function () {
-  console.warn('[game.js] WebGL context restored — планирую пересборку');
-  pendingRecover = true;
-}, false);
-
-document.addEventListener('visibilitychange', function () {
-  if (!document.hidden) {
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    try { renderer.render(scene, camera); } catch (e) {}
-  }
-});
-
-function recoverGL() {
-  try {
-    if (MC.atlasTexture) MC.atlasTexture.needsUpdate = true;
-
-    for (let i = 0; i < crackTextures.length; i++) {
-      crackTextures[i].needsUpdate = true;
-    }
-
-    if (clouds && clouds.materials) {
-      for (let i = 0; i < clouds.materials.length; i++) {
-        const m = clouds.materials[i];
-        if (m.map) m.map.needsUpdate = true;
-        m.needsUpdate = true;
-      }
-    }
-
-    if (MC.rebuildAll) MC.rebuildAll();
-    if (MOBS.rebuildTextures) MOBS.rebuildTextures();
-
-    if (renderer.resetState) renderer.resetState();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.render(scene, camera);
-
-    console.log('[game.js] пересборка после потери контекста завершена');
-  } catch (e) {
-    console.error('[game.js] recoverGL error', e);
-  }
-}
-
 MOBS.init(scene);
 
+/* ============================================================
+   1. ПОДСВЕТКА ВЫБРАННОГО БЛОКА
+   ============================================================ */
 const hlBox = new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004)),
   new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.55 })
@@ -183,222 +124,7 @@ hlBox.visible = false;
 scene.add(hlBox);
 
 /* ============================================================
-   1.0. ОБЛАКА
-   ============================================================ */
-const clouds = (function makeClouds() {
-  const group = new THREE.Group();
-  group.renderOrder = -1;
-
-  function makeCloudTexture(seed) {
-    const S = 64;
-    const cv = document.createElement('canvas');
-    cv.width = cv.height = S;
-    const ctx = cv.getContext('2d');
-    const img = ctx.createImageData(S, S);
-    const d = img.data;
-
-    let sd = seed >>> 0;
-    function rnd() {
-      sd = (Math.imul(sd, 1103515245) + 12345) & 0x7fffffff;
-      return sd / 0x7fffffff;
-    }
-
-    const nb = 5 + Math.floor(rnd() * 5);
-    const blobs = [];
-    for (let i = 0; i < nb; i++) {
-      blobs.push({
-        x: 0.5 + (rnd() - 0.5) * 0.55,
-        y: 0.5 + (rnd() - 0.5) * 0.55,
-        r: 0.10 + rnd() * 0.18
-      });
-    }
-
-    for (let y = 0; y < S; y++) {
-      for (let x = 0; x < S; x++) {
-        const u = x / S, v = y / S;
-        const dx = u - 0.5, dy = v - 0.5;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const mask = 1 - Math.max(0, (dist - 0.34) / 0.14);
-        if (mask <= 0) continue;
-
-        let val = 0;
-        for (let i = 0; i < blobs.length; i++) {
-          const bl = blobs[i];
-          const ddx = u - bl.x, ddy = v - bl.y;
-          const dd = Math.sqrt(ddx * ddx + ddy * ddy);
-          const t = 1 - dd / bl.r;
-          if (t > val) val = t;
-        }
-        val = Math.max(0, Math.min(1, val * mask));
-
-        const o = (y * S + x) * 4;
-        if (val > 0.55) {
-          d[o] = 255; d[o + 1] = 255; d[o + 2] = 255;
-          d[o + 3] = Math.floor(220 + (val - 0.55) * 60);
-        } else if (val > 0.30) {
-          d[o] = 255; d[o + 1] = 255; d[o + 2] = 255;
-          d[o + 3] = Math.floor(((val - 0.30) / 0.25) * 200);
-        } else {
-          d[o] = 0; d[o + 1] = 0; d[o + 2] = 0; d[o + 3] = 0;
-        }
-      }
-    }
-
-    ctx.putImageData(img, 0, 0);
-    const tex = new THREE.CanvasTexture(cv);
-    tex.magFilter = THREE.NearestFilter;
-    tex.minFilter = THREE.NearestFilter;
-    tex.generateMipmaps = false;
-    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-    return tex;
-  }
-
-  const textures = [];
-  for (let i = 0; i < 8; i++) textures.push(makeCloudTexture(1000 + i * 137));
-  const materials = textures.map(function (t) {
-    return new THREE.MeshBasicMaterial({
-      map: t, transparent: true, depthWrite: false,
-      side: THREE.DoubleSide, fog: false
-    });
-  });
-
-  const SPREAD = 420;
-  const COUNT = 26;
-
-  let s2 = 424242;
-  function rnd2() { s2 = (Math.imul(s2, 1103515245) + 12345) & 0x7fffffff; return s2 / 0x7fffffff; }
-
-  const list = [];
-  for (let i = 0; i < COUNT; i++) {
-    const mat = materials[Math.floor(rnd2() * materials.length)];
-    const size = 40 + rnd2() * 60;
-    const geo = new THREE.PlaneGeometry(size, size);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.rotation.set(-Math.PI / 2, 0, rnd2() * Math.PI * 2);
-    mesh.position.set(
-      (rnd2() - 0.5) * SPREAD * 2,
-      90 + rnd2() * 25,
-      (rnd2() - 0.5) * SPREAD * 2
-    );
-    mesh.frustumCulled = false;
-    group.add(mesh);
-    list.push({ mesh: mesh, speed: 0.4 + rnd2() * 0.8 });
-  }
-
-  scene.add(group);
-  return { group: group, list: list, spread: SPREAD, materials: materials };
-})();
-
-function updateClouds(dt, pPos) {
-  clouds.group.position.x = pPos.x;
-  clouds.group.position.z = pPos.z;
-  const S = clouds.spread;
-  for (let i = 0; i < clouds.list.length; i++) {
-    const c = clouds.list[i];
-    c.mesh.position.x += c.speed * dt;
-    if (c.mesh.position.x > S) c.mesh.position.x -= S * 2;
-  }
-}
-
-/* ============================================================
-   1.1. НЕВИДИМЫЕ БАРЬЕРЫ
-   ============================================================ */
-(function makeBorderWalls() {
-  const H = 40;
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0x7ec850, transparent: true, opacity: 0.10,
-    side: THREE.DoubleSide, depthWrite: false
-  });
-  const geoNS = new THREE.PlaneGeometry(SX, H);
-  const geoEW = new THREE.PlaneGeometry(SZ, H);
-  const w1 = new THREE.Mesh(geoNS, mat); w1.position.set(SX / 2, H / 2, 0); scene.add(w1);
-  const w2 = new THREE.Mesh(geoNS, mat); w2.position.set(SX / 2, H / 2, SZ); scene.add(w2);
-  const w3 = new THREE.Mesh(geoEW, mat); w3.rotation.y = Math.PI / 2; w3.position.set(0, H / 2, SZ / 2); scene.add(w3);
-  const w4 = new THREE.Mesh(geoEW, mat); w4.rotation.y = Math.PI / 2; w4.position.set(SX, H / 2, SZ / 2); scene.add(w4);
-})();
-
-/* ============================================================
-   1.2. ТРЕЩИНЫ
-   ============================================================ */
-const CRACK_STAGES = 10;
-
-const CRACK_MAP = (function () {
-  const S = 16;
-  const map = new Uint8Array(S * S);
-  let seed = 987654;
-  const rnd = function () { seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
-  const arms = 6;
-  for (let a = 0; a < arms; a++) {
-    let angle = (a / arms) * Math.PI * 2 + (rnd() - 0.5) * 0.6;
-    let x = 7.5 + (rnd() - 0.5) * 3;
-    let y = 7.5 + (rnd() - 0.5) * 3;
-    const len = 6 + rnd() * 8;
-    for (let s = 0; s < len; s++) {
-      angle += (rnd() - 0.5) * 0.75;
-      x += Math.cos(angle);
-      y += Math.sin(angle);
-      const xi = Math.round(x) | 0;
-      const yi = Math.round(y) | 0;
-      if (xi < 0 || xi >= S || yi < 0 || yi >= S) break;
-      const stage = Math.min(CRACK_STAGES, Math.max(1, Math.round((s / len) * CRACK_STAGES)));
-      const idx = yi * S + xi;
-      if (map[idx] === 0 || map[idx] > stage) map[idx] = stage;
-    }
-  }
-  for (let i = 0; i < 30; i++) {
-    const xi = (rnd() * S) | 0;
-    const yi = (rnd() * S) | 0;
-    const idx = yi * S + xi;
-    if (map[idx] === 0) map[idx] = 5 + ((rnd() * (CRACK_STAGES - 5 + 1)) | 0);
-  }
-  return map;
-})();
-
-function makeCrackTexture(stage) {
-  const S = 16;
-  const c = document.createElement('canvas');
-  c.width = c.height = S;
-  const ctx = c.getContext('2d');
-  const img = ctx.createImageData(S, S);
-  const d = img.data;
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      const v = CRACK_MAP[y * S + x];
-      if (v === 0 || v > stage) continue;
-      const o = (y * S + x) * 4;
-      d[o] = 0; d[o+1] = 0; d[o+2] = 0;
-      d[o+3] = Math.min(255, 110 + (stage - v) * 32);
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(c);
-  tex.magFilter = THREE.NearestFilter;
-  tex.minFilter = THREE.NearestFilter;
-  tex.generateMipmaps = false;
-  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-  return tex;
-}
-
-const crackTextures = [];
-for (let s = 1; s <= CRACK_STAGES; s++) crackTextures.push(makeCrackTexture(s));
-
-const crackMat = new THREE.MeshBasicMaterial({
-  map: crackTextures[0], transparent: true, depthWrite: false,
-  polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1
-});
-const crackMesh = new THREE.Mesh(new THREE.BoxGeometry(1.01, 1.01, 1.01), crackMat);
-crackMesh.visible = false;
-crackMesh.renderOrder = 2;
-scene.add(crackMesh);
-
-const HARDNESS = {
-  1: 0.55, 2: 0.45, 3: 1.30, 4: 1.10, 5: 0.45,
-  6: 0.85, 7: 0.20, 8: 0.85, 9: 1.20,
-  10: 0.28, 11: 0.35, 12: 3.50
-};
-
-/* ============================================================
-   1.3. НАСТРОЙКИ
+   2. НАСТРОЙКИ
    ============================================================ */
 const SETTINGS_KEY = 'mcweb_settings_v1';
 
@@ -533,6 +259,10 @@ function clampSettingsPosition() {
   settingsPanel.style.top  = y + 'px';
 }
 
+/* на резкой границе render.js уже ресайзит canvas;
+   здесь только удерживаем панель в пределах экрана */
+window.addEventListener('resize', clampSettingsPosition);
+
 if (!isMobile && settingsDragHandle) {
   let dragging = false;
   let dragOffX = 0, dragOffY = 0;
@@ -589,7 +319,7 @@ if (!isMobile && settingsDragHandle) {
 }
 
 /* ============================================================
-   2. ЗДОРОВЬЕ ИГРОКА
+   3. ЗДОРОВЬЕ ИГРОКА
    ============================================================ */
 const MAX_HP = 20;
 const HEARTS = MAX_HP / 2;
@@ -689,7 +419,7 @@ respawnBtn.addEventListener('click', function (e) {
 refreshHearts();
 
 /* ============================================================
-   3. ИГРОК
+   4. ИГРОК
    ============================================================ */
 const PR = 0.3, PH = 1.8;
 const GRAVITY = 28, JUMP = 9;
@@ -758,7 +488,7 @@ function respawn() {
 }
 
 /* ============================================================
-   4. УПРАВЛЕНИЕ
+   5. УПРАВЛЕНИЕ
    ============================================================ */
 const keys = Object.create(null);
 let locked = false;
@@ -892,7 +622,7 @@ document.addEventListener('wheel', (e) => {
 }, { passive: true });
 
 /* ============================================================
-   4.1. МОБИЛЬНОЕ УПРАВЛЕНИЕ
+   5.1. МОБИЛЬНОЕ УПРАВЛЕНИЕ
    ============================================================ */
 const mobileInput = { active: false, mx: 0, my: 0, sprint: false, down: false };
 
@@ -1086,7 +816,7 @@ if (isMobile) {
 }
 
 /* ============================================================
-   5. РЕЙКАСТ
+   6. РЕЙКАСТ
    ============================================================ */
 const _dir = new THREE.Vector3();
 const _hitDir = new THREE.Vector3();
@@ -1149,7 +879,7 @@ function updateBreaking(dt) {
   const hardness = HARDNESS[id] || 1.0;
   breaking.progress += dt / hardness;
 
-  const stage = Math.min(CRACK_STAGES, Math.floor(breaking.progress * CRACK_STAGES) + 1);
+  const stage = Math.min(10, Math.floor(breaking.progress * 10) + 1);
   if (stage !== breaking.stage) {
     breaking.stage = stage;
     crackMat.map = crackTextures[stage - 1];
@@ -1188,7 +918,7 @@ function placeBlock() {
 }
 
 /* ============================================================
-   6. ХОТБАР
+   7. ХОТБАР
    ============================================================ */
 const HOTBAR = [1, 2, 3, 4, 8, 9, 6, 7, 10, 5, 11];
 let selected = 0;
@@ -1231,7 +961,7 @@ function showHint(text) {
 const infoEl = document.getElementById('info');
 
 /* ============================================================
-   7. СОХРАНЕНИЕ
+   8. СОХРАНЕНИЕ
    ============================================================ */
 function u8ToB64(u8) {
   let s = '';
@@ -1309,7 +1039,7 @@ document.getElementById('newBtn').addEventListener('click', (e) => {
 window.addEventListener('beforeunload', function () { if (dirty) saveGame(); });
 
 /* ============================================================
-   8. ИНИЦИАЛИЗАЦИЯ
+   9. ИНИЦИАЛИЗАЦИЯ
    ============================================================ */
 const loadingEl = document.getElementById('loading');
 const loadingTextEl = loadingEl ? loadingEl.querySelector('div') : null;
@@ -1385,7 +1115,7 @@ function buildChunksAsync(onProgress, onDone) {
 })();
 
 /* ============================================================
-   9. ГЛАВНЫЙ ЦИКЛ
+   10. ГЛАВНЫЙ ЦИКЛ
    ============================================================ */
 const _fwd = new THREE.Vector3();
 const _rgt = new THREE.Vector3();
@@ -1610,11 +1340,6 @@ function loop(now) {
   if (fpsAcc > 0.5) {
     fpsVal = Math.round(fpsCount / fpsAcc);
     fpsAcc = 0; fpsCount = 0;
-  }
-
-  if (pendingRecover) {
-    pendingRecover = false;
-    recoverGL();
   }
 
   try {
