@@ -3,7 +3,9 @@
    + МОБИЛЬНАЯ ПОДДЕРЖКА
    + НАСТРОЙКИ: громкость, полный экран, перетаскивание
    + ОБРАБОТКА ПОТЕРИ WebGL-КОНТЕКСТА
+   + ПРИСЕДАНИЕ: Shift на ПК, ↓ на телефоне
    + В ПОЛЁТЕ на телефоне: ↑ — вверх, ↓ — вниз
+   + Чувствительность камеры на телефоне увеличена ×2
    ============================================================ */
 (function () {
 'use strict';
@@ -95,6 +97,11 @@ const MOBS = (function () {
 const BASE_FOV = 75;
 const SPRINT_FOV = 82;
 const FLY_FOV    = 80;
+
+/* Высота глаз: стоя / присев */
+const EYE_STAND   = 1.62;
+const EYE_CROUCH  = 1.28;
+let   eyeBlend    = 0;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
@@ -650,6 +657,7 @@ function die() {
   if (dead) return;
   dead = true;
   player.fly = false;
+  player.crouch = false;
   player.vel.set(0, 0, 0);
   deathEl.style.display = 'flex';
   if (document.pointerLockElement) document.exitPointerLock();
@@ -666,6 +674,7 @@ function respawnFromDeath() {
   respawn();
   wasOnGround = true;
   highestAirY = player.pos.y;
+  player.crouch = false;
   if (!isMobile) lockPointer();
   else { locked = true; menu.style.display = 'none'; }
 }
@@ -680,7 +689,7 @@ refreshHearts();
 /* ============================================================
    3. ИГРОК
    ============================================================ */
-const PR = 0.3, PH = 1.8, EYE = 1.62;
+const PR = 0.3, PH = 1.8;
 const GRAVITY = 28, JUMP = 9;
 const PLAYER_DAMAGE = 4;
 const ATTACK_RANGE = 3.5;
@@ -691,7 +700,8 @@ const player = {
   pos: new THREE.Vector3(SX / 2 + 0.5, 40, SZ / 2 + 0.5),
   vel: new THREE.Vector3(),
   onGround: false,
-  fly: false
+  fly: false,
+  crouch: false
 };
 let yaw = 0, pitch = 0;
 
@@ -742,6 +752,7 @@ function respawn() {
   const cx = Math.floor(SX / 2), cz = Math.floor(SZ / 2);
   player.pos.set(cx + 0.5, highestAt(cx, cz) + 0.1, cz + 0.5);
   player.vel.set(0, 0, 0);
+  player.crouch = false;
 }
 
 /* ============================================================
@@ -760,7 +771,7 @@ function toggleFly() {
   player.vel.y = 0;
   wasOnGround = false;
   highestAirY = player.pos.y;
-  if (player.fly) { SFX.flyOn();  showHint('Полёт: ВКЛ'); }
+  if (player.fly) { player.crouch = false; SFX.flyOn();  showHint('Полёт: ВКЛ'); }
   else            { SFX.flyOff(); showHint('Полёт: ВЫКЛ'); }
 }
 
@@ -795,6 +806,7 @@ document.addEventListener('pointerlockchange', () => {
   menu.style.display = (locked || dead) ? 'none' : 'flex';
   if (!locked) {
     for (const k in keys) keys[k] = false;
+    player.crouch = false;
     stopBreaking();
     doubleLock.KeyW = false;
     doubleLock.ArrowUp = false;
@@ -819,6 +831,11 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'KeyF' && !e.repeat) toggleFly();
+
+  if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) {
+    player.crouch = true;
+  }
+
   if ((e.code === 'KeyW' || e.code === 'ArrowUp') && !e.repeat) {
     const now = performance.now();
     if (now - lastTap[e.code] < DOUBLE_TAP_MS) {
@@ -842,6 +859,7 @@ document.addEventListener('keyup', (e) => {
   keys[e.code] = false;
   if (e.code === 'KeyW')    doubleLock.KeyW = false;
   if (e.code === 'ArrowUp') doubleLock.ArrowUp = false;
+  if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') player.crouch = false;
 });
 
 document.addEventListener('contextmenu', e => e.preventDefault());
@@ -874,7 +892,7 @@ document.addEventListener('wheel', (e) => {
 /* ============================================================
    4.1. МОБИЛЬНОЕ УПРАВЛЕНИЕ
    ============================================================ */
-const mobileInput = { active: false, mx: 0, my: 0, sprint: false, descend: false };
+const mobileInput = { active: false, mx: 0, my: 0, sprint: false, down: false };
 
 if (isMobile) {
   const joyEl = document.getElementById('joystick');
@@ -921,7 +939,8 @@ if (isMobile) {
   joyEl.addEventListener('touchend',    joyReset);
   joyEl.addEventListener('touchcancel', joyReset);
 
-  const LOOK_SENS = 0.005;
+  /* Чувствительность обзора на телефоне: было 0.005, стало 0.010 (×2) */
+  const LOOK_SENS = 0.010;
   let lookTouchId = null;
   let lastLookX = 0, lastLookY = 0;
 
@@ -968,12 +987,12 @@ if (isMobile) {
   document.addEventListener('touchend', lookEnd);
   document.addEventListener('touchcancel', lookEnd);
 
-  const btnBreak = document.getElementById('btn-break');
-  const btnPlace = document.getElementById('btn-place');
-  const btnJump  = document.getElementById('btn-jump');
-  const btnFly   = document.getElementById('btn-fly');
-  const btnDown  = document.getElementById('btn-down');
-  const btnMenu  = document.getElementById('btn-menu');
+  const btnBreak  = document.getElementById('btn-break');
+  const btnPlace  = document.getElementById('btn-place');
+  const btnJump   = document.getElementById('btn-jump');
+  const btnFly    = document.getElementById('btn-fly');
+  const btnDown   = document.getElementById('btn-down');
+  const btnMenu   = document.getElementById('btn-menu');
 
   function bindHold(btn, onDown, onUp) {
     if (!btn) return;
@@ -1016,8 +1035,15 @@ if (isMobile) {
   );
 
   bindHold(btnDown,
-    function () { if (!dead && locked) mobileInput.descend = true; },
-    function () { mobileInput.descend = false; }
+    function () {
+      if (dead || !locked) return;
+      mobileInput.down = true;
+      if (!player.fly) player.crouch = true;
+    },
+    function () {
+      mobileInput.down = false;
+      player.crouch = false;
+    }
   );
 
   if (btnFly) {
@@ -1040,7 +1066,8 @@ if (isMobile) {
         menu.style.display = 'flex';
         for (const k in keys) keys[k] = false;
         mouseDown[0] = false;
-        mobileInput.descend = false;
+        mobileInput.down = false;
+        player.crouch = false;
         stopBreaking();
         joyReset();
       }
@@ -1054,7 +1081,7 @@ if (isMobile) {
     }, { passive: false });
   }
 
-  console.log('[game.js] мобильный режим активен');
+  console.log('[game.js] мобильный режим активен, LOOK_SENS =', LOOK_SENS);
 }
 
 /* ============================================================
@@ -1405,10 +1432,14 @@ function update(dt) {
       }
     }
 
+    const crouching = player.crouch && !player.fly;
+
+    const targetBlend = crouching ? 1 : 0;
+    eyeBlend += (targetBlend - eyeBlend) * Math.min(1, 12 * dt);
+
     const forwardHeld = keys['KeyW'] || keys['ArrowUp'];
     const forwardLock = (keys['KeyW'] && doubleLock.KeyW) || (keys['ArrowUp'] && doubleLock.ArrowUp);
-    const shift = !!keys['ShiftLeft'];
-    const ctrl  = !!keys['ControlLeft'];
+    const ctrl = !!keys['ControlLeft'];
 
     let fovTarget = BASE_FOV;
     sprintActive = false;
@@ -1420,13 +1451,13 @@ function update(dt) {
 
       if (isMobile) {
         let vy = 0;
-        if (keys['Space'])            vy = sp;
-        if (mobileInput.descend)      vy = -sp;
+        if (keys['Space'])       vy = sp;
+        if (mobileInput.down)    vy = -sp;
         player.vel.y = vy;
       } else {
         let vy = 0;
         if (keys['Space']) vy += sp;
-        if (shift)         vy -= sp;
+        if (keys['ShiftLeft'] || keys['ShiftRight']) vy -= sp;
         player.vel.y = vy;
       }
 
@@ -1434,10 +1465,16 @@ function update(dt) {
       stepAcc = 0;
       fovTarget = ctrl ? FLY_FOV + 8 : FLY_FOV;
     } else {
-      sprintActive = shift || ctrl ||
+      sprintActive = !crouching && (
+                     ctrl ||
                      (forwardLock && forwardHeld && moving) ||
-                     (isMobile && mobileInput.sprint && moving);
-      const sp = sprintActive ? 7.4 : 4.6;
+                     (isMobile && mobileInput.sprint && moving));
+
+      let sp;
+      if (crouching)         sp = 1.9;
+      else if (sprintActive) sp = 7.4;
+      else                   sp = 4.6;
+
       const tx = _wish.x * sp, tz = _wish.z * sp;
       const k = player.onGround ? 14 : 3.2;
       const a = Math.min(1, k * dt);
@@ -1533,7 +1570,8 @@ function update(dt) {
     console.error('mobs update error', e);
   }
 
-  camera.position.set(player.pos.x, player.pos.y + EYE, player.pos.z);
+  const eyeNow = EYE_STAND + (EYE_CROUCH - EYE_STAND) * eyeBlend;
+  camera.position.set(player.pos.x, player.pos.y + eyeNow, player.pos.z);
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
 

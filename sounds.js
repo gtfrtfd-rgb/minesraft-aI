@@ -1,21 +1,12 @@
 /* ============================================================
    sounds.js — процедурные звуки на Web Audio API (без файлов)
-   Профили материалов: grass / dirt / sand / stone / wood / glass / snow
-   Публичный объект:
-     window.SFX = {
-       resume, break, place, step, jump, select,
-       flyOn, flyOff, hurt, death,
-       pig, sheep, cow, chicken,
-       mobHurt, mobDeath,
-       setVolume, getVolume
-     }
    ============================================================ */
 window.SFX = (function () {
 'use strict';
 
 let ctx = null;
 let masterGain = null;
-let masterVolume = 1;   // [0..1]
+let masterVolume = 1;
 
 function getCtx() {
   if (!ctx) {
@@ -26,7 +17,6 @@ function getCtx() {
   return ctx;
 }
 
-/* Главный узел громкости — все звуки проходят через него. */
 function getMaster() {
   const c = getCtx(); if (!c) return null;
   if (!masterGain) {
@@ -72,7 +62,6 @@ function crackleBuffer(seconds, crackleRate, decay) {
 function playNoise(o) {
   const c = getCtx(); if (!c) return;
   const master = getMaster(); if (!master) return;
-
   const duration = o.duration != null ? o.duration : 0.15;
   const decay    = o.decay    != null ? o.decay    : 2.5;
   const gain     = o.gain     != null ? o.gain     : 0.2;
@@ -110,7 +99,6 @@ function playNoise(o) {
 function playTone(o) {
   const c = getCtx(); if (!c) return;
   const master = getMaster(); if (!master) return;
-
   const duration = o.duration != null ? o.duration : 0.1;
   const gain     = o.gain     != null ? o.gain     : 0.15;
   const attack   = o.attack   != null ? o.attack   : 0.005;
@@ -313,7 +301,6 @@ function sndDeath() {
   playNoise({ duration: 0.10, decay: 5, filterType: 'highpass', freq: 3200, gain: 0.08 });
 }
 
-/* ---------- мобы ---------- */
 function sndPig() {
   const p = 0.9 + Math.random() * 0.2;
   playTone({ type: 'sawtooth', f0: 220 * p, f1: 150 * p, duration: 0.12, gain: 0.10 });
@@ -324,7 +311,6 @@ function sndPig() {
 function sndSheep() {
   const c = getCtx(); if (!c) return;
   const master = getMaster(); if (!master) return;
-
   const p = 0.9 + Math.random() * 0.15;
   const t0 = c.currentTime;
   const dur = 0.55;
@@ -363,7 +349,6 @@ function sndSheep() {
 function sndCow() {
   const c = getCtx(); if (!c) return;
   const master = getMaster(); if (!master) return;
-
   const p = 0.9 + Math.random() * 0.15;
   const t0 = c.currentTime;
   const dur = 0.75;

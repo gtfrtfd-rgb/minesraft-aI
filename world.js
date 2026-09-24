@@ -1,43 +1,23 @@
 /* ============================================================
    world.js — мир 256×256×48 с биомами и улучшенным рельефом.
-
-   Биомы (по шуму температуры/влажности/высоты):
-     - пустыня (sand)
-     - равнины (grass)
-     - лес (grass, много дубов)
-     - снега (snow, тёмные ели)
-     - горы (камень, снег на пиках, редкие ели)
-
-   Особенности генерации:
-     - domain warping: рельеф органичный, без прямых углов
-     - 6 октав шума: от континентов до мелких деталей
-     - разные типы деревьев под каждый биом
-     - снег на горных вершинах
    ============================================================ */
 window.MC = window.MC || {};
 (function (MC) {
 'use strict';
 
-/* ============================================================
-   1. КОНСТАНТЫ И МИРОВОЙ МАССИВ
-   ============================================================ */
-const SX = 256, SZ = 256, SY = 48;   // размеры мира (4× больше площадь)
+const SX = 256, SZ = 256, SY = 48;
 const CS = 16;
-const CHX = SX / CS, CHZ = SZ / CS;    // 16 × 16 = 256 чанков
+const CHX = SX / CS, CHZ = SZ / CS;
 const world = new Uint8Array(SX * SZ * SY);
 const IDX = (x, y, z) => x + z * SX + y * SX * SZ;
 const SAVE_KEY = 'mcweb_world_v3';
 
-/* Биомы */
 const BIOME_PLAINS   = 0;
 const BIOME_FOREST   = 1;
 const BIOME_DESERT   = 2;
 const BIOME_SNOW     = 3;
 const BIOME_MOUNTAIN = 4;
 
-/* ============================================================
-   2. ГЕНЕРАТОР СЛУЧАЙНЫХ ЧИСЕЛ + ШУМ
-   ============================================================ */
 let _r = 123456789;
 function rnd() {
   _r = (Math.imul(_r, 1103515245) + 12345) & 0x7fffffff;
@@ -57,9 +37,6 @@ function vnoise(x, z, s) {
   return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v;
 }
 
-/* ============================================================
-   3. ТЕКСТУРНЫЙ АТЛАС (процедурный, 4×4 тайла по 16px)
-   ============================================================ */
 const TILE = 16, ACOLS = 4, AROWS = 4;
 const atlasCanvas = document.createElement('canvas');
 atlasCanvas.width  = TILE * ACOLS;
@@ -88,54 +65,54 @@ function drawTile(index, fn) {
 }
 
 _r = 777;
-drawTile(0, () => nc(92, 156, 52, 30));                // трава сверху
-drawTile(1, (x, y) => {                                // трава сбоку
+drawTile(0, () => nc(92, 156, 52, 30));
+drawTile(1, (x, y) => {
   const edge = 3 + ((x * 5 + 1) % 3);
   if (y < edge) return nc(92, 156, 52, 26);
   return nc(136, 98, 66, 24);
 });
-drawTile(2, () => nc(136, 98, 66, 26));                // земля
-drawTile(3, () => nc(126, 126, 126, 26));              // камень
-drawTile(4, (x, y) => {                                // булыжник
+drawTile(2, () => nc(136, 98, 66, 26));
+drawTile(3, () => nc(126, 126, 126, 26));
+drawTile(4, (x, y) => {
   const gx = (x / 4) | 0, gy = (y / 4) | 0;
   const v = ((gx * 7 + gy * 13) % 5) * 9;
   const edge = (x % 4 === 0 || y % 4 === 0) ? -18 : 0;
   const c = 108 + (rnd() - 0.5) * 16 + v + edge;
   return [cl(c), cl(c), cl(c)];
 });
-drawTile(5, () => nc(218, 206, 158, 18));              // песок
-drawTile(6, (x) => {                                   // бревно сбоку
+drawTile(5, () => nc(218, 206, 158, 18));
+drawTile(6, (x) => {
   const s = Math.sin(x * 1.9) * 9;
   return nc(108 + s, 82 + s, 48 + s, 12);
 });
-drawTile(7, (x, y) => {                                // бревно сверху
+drawTile(7, (x, y) => {
   const dx = x - 7.5, dy = y - 7.5;
   const ring = Math.sin(Math.sqrt(dx*dx + dy*dy) * 2.4) * 12;
   return nc(152 + ring, 118 + ring, 74 + ring, 10);
 });
-drawTile(8, () => {                                    // листва
+drawTile(8, () => {
   const dark = rnd() < 0.20 ? -38 : 0;
   return nc(56 + dark, 128 + dark, 40 + dark, 34);
 });
-drawTile(9, (x, y) => {                                // доски
+drawTile(9, (x, y) => {
   let v = 0;
   if (y % 5 === 0) v = -34;
   else if (((x + ((y / 5) | 0) * 7) % 11) === 0) v = -22;
   return nc(166 + v, 134 + v, 84 + v, 16);
 });
-drawTile(10, (x, y) => {                               // кирпич
+drawTile(10, (x, y) => {
   const row = (y / 4) | 0;
   const off = (row % 2) * 4;
   if (y % 4 === 0 || ((x + off) % 8) === 0) return nc(196, 190, 184, 12);
   return nc(150, 66, 50, 16);
 });
-drawTile(11, (x, y) => {                               // стекло
+drawTile(11, (x, y) => {
   if (x === 0 || y === 0 || x === 15 || y === 15) return [212, 236, 245, 255];
   if ((x === 2 && y < 6) || (y === 2 && x < 6)) return [238, 250, 255, 170];
   return [188, 226, 240, 55];
 });
-drawTile(12, () => nc(242, 246, 250, 10));             // снег
-drawTile(13, () => {                                   // обсидиан
+drawTile(12, () => nc(242, 246, 250, 10));
+drawTile(13, () => {
   const d = (rnd() - 0.5) * 24;
   return [cl(38 + d), cl(28 + d), cl(58 + d)];
 });
@@ -146,9 +123,6 @@ atlasTexture.minFilter = THREE.NearestFilter;
 atlasTexture.generateMipmaps = false;
 atlasTexture.wrapS = atlasTexture.wrapT = THREE.ClampToEdgeWrapping;
 
-/* ============================================================
-   4. ОПРЕДЕЛЕНИЯ БЛОКОВ
-   ============================================================ */
 const BLOCKS = {
   1:  { name: 'Трава',     top: 0,  side: 1,  bottom: 2  },
   2:  { name: 'Земля',     top: 2,  side: 2,  bottom: 2  },
@@ -164,9 +138,6 @@ const BLOCKS = {
   12: { name: 'Обсидиан',  top: 13, side: 13, bottom: 13 }
 };
 
-/* ============================================================
-   5. ГЕНЕРАЦИЯ МИРА
-   ============================================================ */
 function generateWorld(s) {
   world.fill(0);
   _r = (s >>> 0) || 1;
@@ -174,15 +145,11 @@ function generateWorld(s) {
   const heights = new Int16Array(SX * SZ);
   const biomes  = new Uint8Array(SX * SZ);
 
-  /* ---------- ПРОХОД 1: высоты и биомы ---------- */
   for (let z = 0; z < SZ; z++) {
     for (let x = 0; x < SX; x++) {
-
-      // domain warping — сдвигаем координаты для органичного рельефа
       const wx = x + (vnoise(x / 40, z / 40, s + 700) - 0.5) * 30;
       const wz = z + (vnoise(x / 40, z / 40, s + 800) - 0.5) * 30;
 
-      // 6 октав шума — от континентов до мелких деталей
       let h = 0;
       h += vnoise(wx / 128, wz / 128, s)      * 16;
       h += vnoise(wx / 64,  wz / 64,  s + 11) * 8;
@@ -195,7 +162,6 @@ function generateWorld(s) {
       if (h > SY - 12) h = SY - 12;
       heights[x + z * SX] = h;
 
-      // климат: температура / влажность / горный шум
       const temp  = vnoise(x / 180, z / 180, s + 300);
       const humid = vnoise(x / 140, z / 140, s + 400);
       const mount = vnoise(x / 90,  z / 90,  s + 500);
@@ -210,7 +176,6 @@ function generateWorld(s) {
     }
   }
 
-  /* ---------- ПРОХОД 2: заполнение колонн блоками ---------- */
   for (let z = 0; z < SZ; z++) {
     for (let x = 0; x < SX; x++) {
       const h = heights[x + z * SX];
@@ -220,26 +185,23 @@ function generateWorld(s) {
         let b;
 
         if (y === 0) {
-          b = 12;                                    // обсидиановое ядро
+          b = 12;
         } else if (y < h - 3) {
-          b = 3;                                     // камень
-          // в горах изредка попадается обсидиан — «руда»
+          b = 3;
           if (biome === BIOME_MOUNTAIN && y < h - 6) {
             const rv = vnoise(x * 0.7 + y * 3.1, z * 0.7 + y * 1.3, s + 999);
             if (rv > 0.985) b = 12;
           }
         } else if (y < h) {
-          // подслойка под верхним блоком
-          if (biome === BIOME_DESERT)      b = 5;    // песок
-          else if (biome === BIOME_SNOW)   b = 2;    // земля
-          else if (biome === BIOME_MOUNTAIN) b = 3;  // камень
-          else                              b = 2;    // земля
+          if (biome === BIOME_DESERT)      b = 5;
+          else if (biome === BIOME_SNOW)   b = 2;
+          else if (biome === BIOME_MOUNTAIN) b = 3;
+          else                              b = 2;
         } else {
-          // верхний блок
-          if (biome === BIOME_DESERT)                    b = 5;                 // песок
-          else if (biome === BIOME_SNOW)                 b = 11;                // снег
-          else if (biome === BIOME_MOUNTAIN)             b = (h > 32) ? 11 : 3; // снег на пиках, камень ниже
-          else                                           b = 1;                 // трава
+          if (biome === BIOME_DESERT)                    b = 5;
+          else if (biome === BIOME_SNOW)                 b = 11;
+          else if (biome === BIOME_MOUNTAIN)             b = (h > 32) ? 11 : 3;
+          else                                           b = 1;
         }
 
         world[IDX(x, y, z)] = b;
@@ -247,14 +209,12 @@ function generateWorld(s) {
     }
   }
 
-  /* ---------- ПРОХОД 3: деревья по биомам ---------- */
   plantTrees(heights, biomes, 380, BIOME_FOREST,   'oak');
   plantTrees(heights, biomes, 90,  BIOME_PLAINS,   'oak');
   plantTrees(heights, biomes, 160, BIOME_SNOW,     'pine');
   plantTrees(heights, biomes, 40,  BIOME_MOUNTAIN, 'pine');
 }
 
-/* Сажаем N деревьев указанного типа в биоме targetBiome */
 function plantTrees(heights, biomes, count, targetBiome, kind) {
   for (let i = 0; i < count; i++) {
     const x = 4 + Math.floor(rnd() * (SX - 8));
@@ -262,13 +222,11 @@ function plantTrees(heights, biomes, count, targetBiome, kind) {
     if (biomes[x + z * SX] !== targetBiome) continue;
 
     const h = heights[x + z * SX];
-    if (targetBiome === BIOME_MOUNTAIN && h > 28) continue;   // в горах только внизу
+    if (targetBiome === BIOME_MOUNTAIN && h > 28) continue;
 
-    // верхний блок должен быть подходящим
     const top = world[IDX(x, h, z)];
     if (top !== 1 && top !== 11 && top !== 3 && top !== 5) continue;
 
-    // не сажаем вплотную к другим деревьям
     let ok = true;
     for (let dx = -2; dx <= 2 && ok; dx++)
       for (let dz = -2; dz <= 2; dz++)
@@ -280,7 +238,6 @@ function plantTrees(heights, biomes, count, targetBiome, kind) {
   }
 }
 
-/* Дуб: широкий, короткий ствол, купол листвы */
 function buildOak(x, y, z) {
   const th = 4 + Math.floor(rnd() * 3);
   for (let i = 0; i < th; i++) {
@@ -302,14 +259,12 @@ function buildOak(x, y, z) {
   }
 }
 
-/* Ель: высокая, узкая, с конусными кольцами листвы */
 function buildPine(x, y, z) {
   const th = 6 + Math.floor(rnd() * 3);
   for (let i = 0; i < th; i++) {
     if (y + i < SY) world[IDX(x, y + i, z)] = 6;
   }
   const top = y + th;
-  // 5 ярусов, каждый следующий уже предыдущего
   for (let layer = 0; layer < 5; layer++) {
     const r = Math.max(0, 2 - Math.floor(layer * 0.55));
     const ly = top + layer - 4;
@@ -325,9 +280,6 @@ function buildPine(x, y, z) {
   }
 }
 
-/* ============================================================
-   6. ДОСТУП К БЛОКАМ
-   ============================================================ */
 function getBlock(x, y, z) {
   if (x < 0 || x >= SX || z < 0 || z >= SZ) return 0;
   if (y < 0) return 1;
@@ -348,9 +300,6 @@ function highestAt(x, z) {
   return 1;
 }
 
-/* ============================================================
-   7. МЕШИ ЧАНКОВ
-   ============================================================ */
 const matOpaque = new THREE.MeshBasicMaterial({ map: atlasTexture, vertexColors: true });
 const matTrans  = new THREE.MeshBasicMaterial({
   map: atlasTexture, vertexColors: true, transparent: true,
@@ -473,9 +422,6 @@ function rebuildAll() {
   buildAllChunks();
 }
 
-/* ============================================================
-   8. ЭКСПОРТ
-   ============================================================ */
 MC.SX = SX; MC.SZ = SZ; MC.SY = SY;
 MC.CS = CS; MC.CHX = CHX; MC.CHZ = CHZ;
 MC.world = world;

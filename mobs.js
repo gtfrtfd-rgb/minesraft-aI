@@ -1,21 +1,5 @@
 /* ============================================================
    mobs.js — мирные мобы с текстурами, звуками, HP и AI.
-
-   AI:
-     - прыжок через блок высотой 1
-     - горизонтальная скорость сохраняется в прыжке
-     - паника при уроне (убегает от игрока 4 сек, ×1.6 скорость)
-     - изредка «смотрит» на игрока рядом
-     - детектор застревания
-     - случайные звуки каждые 8–16 секунд в радиусе 15 блоков
-
-   Публичный объект: window.MOBS = {
-     init(scene), update(dt, playerPos),
-     spawnInitial(count), spawnAt(type, x, y, z),
-     clear(), serialize(), deserialize(arr),
-     count(), raycast(origin, dir, maxDist), hit(mob, dmg, fromX, fromZ),
-     rebuildTextures()
-   }
    ============================================================ */
 window.MOBS = (function () {
 'use strict';
@@ -53,9 +37,6 @@ const PANIC_DURATION = 4.0;
 const PANIC_SPEED_MULT = 1.6;
 const LEG_SWING = 0.55;
 
-/* ============================================================
-   ПРОЦЕДУРНЫЕ ТЕКСТУРЫ МОБОВ (16×16, пиксельные)
-   ============================================================ */
 function cl(v) { return v < 0 ? 0 : v > 255 ? 255 : (v | 0); }
 function fract(v) { return v - Math.floor(v); }
 function hash01(x, y, s) {
@@ -210,10 +191,6 @@ function makeBox(w, h, d, color, texKey) {
   return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats);
 }
 
-/* ============================================================
-   ОПРЕДЕЛЕНИЯ МОБОВ
-   Части: [w, h, d, color, x, y, z, isLeg, texKey]
-   ============================================================ */
 const MOB_TYPES = {
 
   pig: {
@@ -283,9 +260,6 @@ const MOB_TYPES = {
 
 };
 
-/* ============================================================
-   СОЗДАНИЕ МОБА
-   ============================================================ */
 function buildMobMesh(type) {
   const def = MOB_TYPES[type];
   const group = new THREE.Group();
@@ -357,9 +331,6 @@ function createMob(type, x, y, z, yaw) {
   return mob;
 }
 
-/* ============================================================
-   ФИЗИКА И КОЛЛИЗИИ
-   ============================================================ */
 function mobCollides(px, py, pz, r, h) {
   if (px - r < 0 || px + r > SX) return true;
   if (pz - r < 0 || pz + r > SZ) return true;
@@ -444,9 +415,6 @@ function reactToWall(mob) {
   mob.avoidCooldown = 0.4;
 }
 
-/* ============================================================
-   ЗВУКИ МОБОВ
-   ============================================================ */
 function maybePlaySound(mob) {
   if (!playerPos) return;
   if (!window.SFX) return;
@@ -466,9 +434,6 @@ function maybePlaySound(mob) {
   if (typeof snd === 'function') snd();
 }
 
-/* ============================================================
-   НАНЕСЕНИЕ УРОНА
-   ============================================================ */
 function hitMob(mob, damage, fromX, fromZ) {
   if (!mob || mob.dead) return false;
   mob.hp -= damage;
@@ -496,9 +461,6 @@ function hitMob(mob, damage, fromX, fromZ) {
   return false;
 }
 
-/* ============================================================
-   RAYCAST ПО МОБАМ (slab-метод, AABB)
-   ============================================================ */
 function raycastMob(origin, dir, maxDist) {
   let best = null;
   let bestT = maxDist;
@@ -553,9 +515,6 @@ function raycastMob(origin, dir, maxDist) {
   return best ? { mob: best, t: bestT } : null;
 }
 
-/* ============================================================
-   AI + ОБНОВЛЕНИЕ
-   ============================================================ */
 function updateMob(mob, dt) {
   const def = mob.def;
 
@@ -687,9 +646,6 @@ function updateMob(mob, dt) {
   }
 }
 
-/* ============================================================
-   СПАВН
-   ============================================================ */
 function findGround(x, z) {
   for (let y = SY - 1; y >= 0; y--) {
     if (world[IDX(x, y, z)] !== 0) return y + 1;
@@ -739,9 +695,6 @@ function spawnInitial(count) {
   return spawned;
 }
 
-/* ============================================================
-   ОЧИСТКА / СЕРИАЛИЗАЦИЯ
-   ============================================================ */
 function clear() {
   for (let i = 0; i < mobs.length; i++) {
     scene.remove(mobs[i].group);
@@ -773,7 +726,6 @@ function deserialize(arr) {
   }
 }
 
-/* Пересоздать GPU-ресурсы после потери WebGL-контекста. */
 function rebuildTextures() {
   for (const key in MOB_TEXTURES) {
     const t = MOB_TEXTURES[key];
@@ -785,9 +737,6 @@ function rebuildTextures() {
   });
 }
 
-/* ============================================================
-   ПУБЛИЧНОЕ API
-   ============================================================ */
 function init(sc) {
   scene = sc;
 }
