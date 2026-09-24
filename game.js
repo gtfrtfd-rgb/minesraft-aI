@@ -3,6 +3,7 @@
    + RLE-сжатие сохранения
    + НАСТРОЙКА ПРОРИСОВКИ (render distance)
    + Мобы скрываются за пределами прорисовки
+   + НАСТРОЙКА ЛИМИТА FPS (15 · 30 · 60 · 90 · 120 · 144 · 165 · 180 · ∞)
    ============================================================ */
 (function () {
 'use strict';
@@ -57,7 +58,7 @@ const crackMat  = R.crackMat;
 const crackMesh = R.crackMesh;
 const updateClouds = R.updateClouds;
 
-const GAME_VERSION = 'V2.5.TEST';
+const GAME_VERSION = 'V2.1.5.final';
 
 const HARDNESS = {
   1: 0.55, 2: 0.45, 3: 1.30, 4: 1.10, 5: 0.45,
@@ -68,6 +69,13 @@ const HARDNESS = {
 const EYE_STAND   = 1.62;
 const EYE_CROUCH  = 1.28;
 let   eyeBlend    = 0;
+
+/* ------------------------------------------------------------
+   Лимит FPS: дискретные значения.
+   0 в массиве = без ограничений (используем платформенный rAF).
+   ------------------------------------------------------------ */
+const FPS_OPTIONS = [15, 30, 60, 90, 120, 144, 165, 180, 0];
+const FPS_LABELS  = ['15', '30', '60', '90', '120', '144', '165', '180', '∞'];
 
 const SFX = (function () {
   const s = window.SFX;
@@ -133,13 +141,14 @@ const SETTINGS_KEY = 'mcweb_settings_v2';
 function loadSettings() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return { volume: 1, renderDist: 6 };
+    if (!raw) return { volume: 1, renderDist: 6, fpsLimitIdx: 2 };
     const d = JSON.parse(raw);
     return {
       volume: typeof d.volume === 'number' ? d.volume : 1,
-      renderDist: typeof d.renderDist === 'number' ? d.renderDist : 6
+      renderDist: typeof d.renderDist === 'number' ? d.renderDist : 6,
+      fpsLimitIdx: typeof d.fpsLimitIdx === 'number' ? d.fpsLimitIdx : 2
     };
-  } catch (e) { return { volume: 1, renderDist: 6 }; }
+  } catch (e) { return { volume: 1, renderDist: 6, fpsLimitIdx: 2 }; }
 }
 function saveSettings(s) {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) {}
@@ -148,6 +157,10 @@ function saveSettings(s) {
 const settings = loadSettings();
 if (settings.renderDist < 2) settings.renderDist = 2;
 if (settings.renderDist > 12) settings.renderDist = 12;
+if (settings.fpsLimitIdx < 0) settings.fpsLimitIdx = 0;
+if (settings.fpsLimitIdx >= FPS_OPTIONS.length) settings.fpsLimitIdx = FPS_OPTIONS.length - 1;
+/* Вычисляем само значение лимита (0 = без лимита) */
+let fpsLimit = FPS_OPTIONS[settings.fpsLimitIdx];
 
 const settingsBtn   = document.getElementById('btn-settings');
 const settingsPanel = document.getElementById('settings-panel');
@@ -155,8 +168,11 @@ const volSlider     = document.getElementById('set-volume');
 const volValueEl    = document.getElementById('set-volume-val');
 const renderSlider  = document.getElementById('set-render');
 const renderValueEl = document.getElementById('set-render-val');
+const fpsSlider     = document.getElementById('set-fps');
+const fpsValueEl    = document.getElementById('set-fps-val');
 const fsCheckbox    = document.getElementById('set-fullscreen');
 
+/* --- Громкость --- */
 SFX.setVolume(settings.volume);
 volSlider.value = Math.round(settings.volume * 100);
 volValueEl.textContent = Math.round(settings.volume * 100) + '%';
@@ -169,6 +185,7 @@ volSlider.addEventListener('input', function () {
   saveSettings(settings);
 });
 
+/* --- Прорисовка --- */
 renderSlider.value = settings.renderDist;
 renderValueEl.textContent = settings.renderDist;
 
@@ -187,6 +204,19 @@ renderSlider.addEventListener('input', function () {
   applyRenderDistance();
 });
 
+/* --- Лимит FPS --- */
+fpsSlider.value = settings.fpsLimitIdx;
+fpsValueEl.textContent = FPS_LABELS[settings.fpsLimitIdx];
+
+fpsSlider.addEventListener('input', function () {
+  const v = parseInt(fpsSlider.value, 10);
+  settings.fpsLimitIdx = v;
+  fpsLimit = FPS_OPTIONS[v];
+  fpsValueEl.textContent = FPS_LABELS[v];
+  saveSettings(settings);
+});
+
+/* --- Полный экран --- */
 function isFullscreen() {
   return !!(document.fullscreenElement || document.webkitFullscreenElement);
 }
@@ -219,6 +249,7 @@ document.addEventListener('webkitfullscreenchange', function () {
   fsCheckbox.checked = isFullscreen();
 });
 
+/* --- Открытие/закрытие панели --- */
 let wasInGameBeforeSettings = false;
 let panelJustDragged = false;
 
@@ -1168,6 +1199,7 @@ function buildChunksAsync(onProgress, onDone) {
             console.log('[game.js] init OK. Игрок:', player.pos.toArray(),
                         '| мобов:', MOBS.count(), '| hp:', hp,
                         '| renderDist:', settings.renderDist,
+                        '| fpsLimit:', fpsLimit || '∞',
                         '| mobile:', isMobile, '| version:', GAME_VERSION);
           }
         );
@@ -1414,6 +1446,16 @@ function update(dt) {
 
 function loop(now) {
   requestAnimationFrame(loop);
+
+  /* --- Лимит FPS: пропускаем кадр, если он слишком рано ---
+     Рендерим, когда прошло >= 90% от целевого интервала.
+     Запас 10% нужен потому, что requestAnimationFrame даёт
+     отметки не ровно через интервал, а с погрешностью. */
+  if (fpsLimit > 0) {
+    const interval = 1000 / fpsLimit;
+    if (now - lastT < interval * 0.9) return;
+  }
+
   const dt = Math.min((now - lastT) / 1000, 0.05);
   lastT = now;
 
@@ -1431,7 +1473,8 @@ function loop(now) {
 
   infoEl.textContent =
     'XYZ: ' + player.pos.x.toFixed(1) + ' / ' + player.pos.y.toFixed(1) + ' / ' + player.pos.z.toFixed(1) + '\n' +
-    'FPS: ' + fpsVal + '  ·  R: ' + settings.renderDist + '  ·  ' + GAME_VERSION;
+    'FPS: ' + fpsVal + (fpsLimit > 0 ? '/' + fpsLimit : '') +
+    '  ·  R: ' + settings.renderDist + '  ·  ' + GAME_VERSION;
 
   try {
     renderer.render(scene, camera);

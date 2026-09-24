@@ -50,6 +50,12 @@
   </label>
 
   <label class="setting-row">
+    <span class="setting-label">Лимит FPS</span>
+    <input type="range" id="set-fps" min="0" max="8" step="1" value="2">
+    <span class="setting-value" id="set-fps-val">60</span>
+  </label>
+
+  <label class="setting-row">
     <span class="setting-label">Полный экран</span>
     <span class="setting-toggle">
       <input type="checkbox" id="set-fullscreen">
@@ -58,6 +64,7 @@
   </label>
 
   <div class="settings-hint">Прорисовка: <b>2–12</b> чанков (32–192 блока)<br>Меньше — выше FPS, больше — видно дальше</div>
+  <div class="settings-hint">Лимит FPS: <b>15 · 30 · 60 · 90 · 120 · 144 · 165 · 180 · ∞</b><br>Меньше — экономит батарею телефона</div>
   <div class="settings-hint">На ПК: <b>O</b> — открыть/закрыть · <b>Esc</b> — выйти из полного экрана</div>
 </div>
 
