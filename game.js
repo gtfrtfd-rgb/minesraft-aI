@@ -1,13 +1,15 @@
 /* ============================================================
-   game.js — игровая логика: игрок, здоровье, управление,
-   мобильные кнопки, рейкаст, хотбар, сохранения, главный цикл.
-   Движок (сцену, рендерер, камеру, облака, барьеры, трещины)
-   подключает из render.js через window.RENDER.
+   game.js
+   + МОБИЛЬНАЯ ПОДДЕРЖКА
+   + НАСТРОЙКИ: громкость, полный экран, перетаскивание
+   + ПРИСЕДАНИЕ: Shift на ПК, ↓ на телефоне
+   + В ПОЛЁТЕ на телефоне: ↑ — вверх, ↓ — вниз
+   + Блок нельзя ставить внутрь моба
+   + RLE-СЖАТИЕ сохранения (лечит QuotaExceededError)
    ============================================================ */
 (function () {
 'use strict';
 
-/* ---------- аварийный экран ---------- */
 function fatal(msg) {
   const el = document.getElementById('loading');
   if (el) {
@@ -20,17 +22,16 @@ function fatal(msg) {
   console.error('[game.js] FATAL:', msg);
 }
 
-/* ---------- проверка зависимостей ---------- */
 const R = window.RENDER;
 if (!R || !R.ok) {
   if (!R) fatal('render.js не загрузился.');
   else if (R.reason === 'no-three') fatal('Библиотека three.js не загрузилась. Проверьте подключение к интернету.');
-  else if (R.reason === 'no-mc') fatal('world.js не загрузился или упал. Проверьте, что файл лежит рядом с index.html.');
+  else if (R.reason === 'no-mc') fatal('world.js не загрузился или упал.');
   else fatal('Не удалось инициализировать движок.');
   return;
 }
 if (!window.MC || !window.MC.generateWorld) {
-  fatal('world.js не загрузился. Проверьте, что файл лежит рядом с index.html.');
+  fatal('world.js не загрузился.');
   return;
 }
 
@@ -45,7 +46,6 @@ const generateWorld = MC.generateWorld;
 const buildChunk = MC.buildChunk;
 const rebuildAround = MC.rebuildAround, rebuildAll = MC.rebuildAll;
 
-/* ---------- из render.js ---------- */
 const scene = R.scene;
 const renderer = R.renderer;
 const camera = R.camera;
@@ -60,12 +60,17 @@ const updateClouds = R.updateClouds;
 
 const GAME_VERSION = 'V2.1.3.2';
 
-/* ---------- высота глаз: стоя / присев ---------- */
+/* Твёрдость блоков — сколько секунд держать ЛКМ, чтобы сломать */
+const HARDNESS = {
+  1: 0.55, 2: 0.45, 3: 1.30, 4: 1.10, 5: 0.45,
+  6: 0.85, 7: 0.20, 8: 0.85, 9: 1.20,
+  10: 0.28, 11: 0.35, 12: 3.50
+};
+
 const EYE_STAND   = 1.62;
 const EYE_CROUCH  = 1.28;
 let   eyeBlend    = 0;
 
-/* ---------- безопасная обёртка SFX ---------- */
 const SFX = (function () {
   const s = window.SFX;
   if (s) {
@@ -86,7 +91,6 @@ const SFX = (function () {
   };
 })();
 
-/* ---------- безопасная обёртка MOBS ---------- */
 const MOBS = (function () {
   const m = window.MOBS;
   if (m && m.raycast && m.hit) {
@@ -259,8 +263,6 @@ function clampSettingsPosition() {
   settingsPanel.style.top  = y + 'px';
 }
 
-/* на резкой границе render.js уже ресайзит canvas;
-   здесь только удерживаем панель в пределах экрана */
 window.addEventListener('resize', clampSettingsPosition);
 
 if (!isMobile && settingsDragHandle) {
@@ -961,8 +963,15 @@ function showHint(text) {
 const infoEl = document.getElementById('info');
 
 /* ============================================================
-   8. СОХРАНЕНИЕ
+   8. СОХРАНЕНИЕ (RLE-сжатие)
+   ------------------------------------------------------------
+   Мир состоит из больших серий одинаковых блоков (воздух,
+   камень вглубь, трава по поверхности), поэтому RLE даёт
+   сжатие в 20–50×. Это лечит QuotaExceededError, когда
+   3.15 млн блоков в base64 не влезают в localStorage.
    ============================================================ */
+
+/* Base64 */
 function u8ToB64(u8) {
   let s = '';
   const CH = 0x8000;
@@ -977,15 +986,46 @@ function b64ToU8(str) {
   return u8;
 }
 
+/* RLE: тройки байт [значение, длина_lo, длина_hi].
+   Максимальная длина серии — 65535, поэтому серии режем. */
+function rleEncode(arr) {
+  const out = [];
+  const n = arr.length;
+  let i = 0;
+  while (i < n) {
+    const v = arr[i];
+    let run = 1;
+    while (i + run < n && arr[i + run] === v && run < 65535) run++;
+    out.push(v, run & 0xff, (run >> 8) & 0xff);
+    i += run;
+  }
+  return new Uint8Array(out);
+}
+
+function rleDecode(u8, targetLen) {
+  const out = new Uint8Array(targetLen);
+  let o = 0;
+  for (let i = 0; i + 2 < u8.length && o < targetLen; i += 3) {
+    const v = u8[i];
+    const run = u8[i + 1] | (u8[i + 2] << 8);
+    const end = Math.min(o + run, targetLen);
+    while (o < end) out[o++] = v;
+  }
+  return out;
+}
+
 let dirty = false;
 function markDirty() { dirty = true; }
 let worldSeed = 1337;
 
 function saveGame() {
   try {
+    const compressed = rleEncode(world);
     localStorage.setItem(SAVE_KEY, JSON.stringify({
-      v: 1, seed: worldSeed,
-      w: u8ToB64(world),
+      v: 2,
+      rle: 1,
+      seed: worldSeed,
+      w: u8ToB64(compressed),
       px: player.pos.x, py: player.pos.y, pz: player.pos.z,
       yaw: yaw, pitch: pitch, fly: player.fly,
       hp: hp,
@@ -1000,9 +1040,17 @@ function loadGame() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return false;
     const d = JSON.parse(raw);
-    const arr = b64ToU8(d.w);
-    if (arr.length !== world.length) return false;
-    world.set(arr);
+    const bytes = b64ToU8(d.w);
+
+    if (d.rle === 1) {
+      const unpacked = rleDecode(bytes, world.length);
+      world.set(unpacked);
+    } else {
+      // Старое сохранение без сжатия — только если размер совпадает
+      if (bytes.length !== world.length) return false;
+      world.set(bytes);
+    }
+
     worldSeed = d.seed || worldSeed;
     player.pos.set(d.px, d.py, d.pz);
     player.vel.set(0, 0, 0);
