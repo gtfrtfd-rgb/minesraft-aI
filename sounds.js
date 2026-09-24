@@ -1,5 +1,10 @@
 /* ============================================================
    sounds.js — процедурные звуки на Web Audio API (без файлов)
+   + Низкая задержка на мобильных:
+     - AudioContext создаётся сразу при загрузке (не лениво)
+     - latencyHint: 'interactive' (маленький буфер)
+     - разблокировка через пустой семпл (iOS Safari)
+     - звуки ставятся с запасом 3 мс, чтобы не теряться
    ============================================================ */
 window.SFX = (function () {
 'use strict';
@@ -7,14 +12,63 @@ window.SFX = (function () {
 let ctx = null;
 let masterGain = null;
 let masterVolume = 1;
+let unlocked = false;
+
+/* ------------------------------------------------------------
+   Создаём AudioContext сразу при загрузке скрипта, а не при
+   первом звуке. Это критично на мобильных: если контекст
+   создаётся лениво, первый звук идёт с задержкой в 50–100 мс,
+   а иногда и вообще пропадает.
+   ------------------------------------------------------------ */
+function createCtx() {
+  try {
+    const Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor) return null;
+    // iOS Safari (старые версии) не понимает опции — ловим исключение
+    try {
+      ctx = new Ctor({ latencyHint: 'interactive' });
+    } catch (e) {
+      ctx = new Ctor();
+    }
+  } catch (e) {
+    console.warn('[sounds.js] нет AudioContext', e);
+    ctx = null;
+  }
+  return ctx;
+}
 
 function getCtx() {
-  if (!ctx) {
-    try { ctx = new (window.AudioContext || window.webkitAudioContext)(); }
-    catch (e) { console.warn('[sounds.js] нет AudioContext', e); return null; }
-  }
-  if (ctx.state === 'suspended') ctx.resume();
+  if (!ctx) createCtx();
+  if (ctx && ctx.state === 'suspended') ctx.resume();
   return ctx;
+}
+
+/* ------------------------------------------------------------
+   Разблокировка аудио. Вызывается из обработчика клика
+   (кнопка «ИГРАТЬ» / клик по канвасу). Помимо resume()
+   проигрываем пустой семпл — это обязательно для iOS Safari,
+   иначе первый звук всё равно идёт с задержкой.
+   ------------------------------------------------------------ */
+function resume() {
+  const c = getCtx();
+  if (!c) return;
+
+  // Резюмируем контекст; если он был suspended — это запустит аудио
+  if (c.state === 'suspended') {
+    const p = c.resume();
+    if (p && p.then) p.then(function () { unlocked = true; });
+  } else {
+    unlocked = true;
+  }
+
+  // Пустой буфер — «прогрев» аудио-тракта
+  try {
+    const b = c.createBuffer(1, 1, c.sampleRate);
+    const s = c.createBufferSource();
+    s.buffer = b;
+    s.connect(c.destination);
+    s.start(0);
+  } catch (e) {}
 }
 
 function getMaster() {
@@ -59,6 +113,14 @@ function crackleBuffer(seconds, crackleRate, decay) {
   return buf;
 }
 
+/* ------------------------------------------------------------
+   Небольшая «форточка» планирования: 3 мс. Не влияет на
+   воспринимаемую задержку, но спасает от того, что звук,
+   поставленный ровно на currentTime, может быть отброшен
+   аудио-движком на первом буфере после resume().
+   ------------------------------------------------------------ */
+const SCHEDULE_LEAD = 0.003;
+
 function playNoise(o) {
   const c = getCtx(); if (!c) return;
   const master = getMaster(); if (!master) return;
@@ -79,7 +141,7 @@ function playNoise(o) {
   const filt = c.createBiquadFilter();
   filt.type = o.filterType || 'lowpass';
   filt.Q.value = o.Q != null ? o.Q : 1;
-  const t0 = c.currentTime + when;
+  const t0 = c.currentTime + when + SCHEDULE_LEAD;
   const f0 = o.freq != null ? o.freq : 1000;
   filt.frequency.setValueAtTime(f0, t0);
   if (o.freqEnd != null) {
@@ -106,7 +168,7 @@ function playTone(o) {
 
   const osc = c.createOscillator();
   osc.type = o.type || 'sine';
-  const t0 = c.currentTime + when;
+  const t0 = c.currentTime + when + SCHEDULE_LEAD;
   const f0 = o.f0 != null ? o.f0 : 440;
   osc.frequency.setValueAtTime(f0, t0);
   if (o.f1 != null) {
@@ -312,7 +374,7 @@ function sndSheep() {
   const c = getCtx(); if (!c) return;
   const master = getMaster(); if (!master) return;
   const p = 0.9 + Math.random() * 0.15;
-  const t0 = c.currentTime;
+  const t0 = c.currentTime + SCHEDULE_LEAD;
   const dur = 0.55;
 
   const osc = c.createOscillator();
@@ -350,7 +412,7 @@ function sndCow() {
   const c = getCtx(); if (!c) return;
   const master = getMaster(); if (!master) return;
   const p = 0.9 + Math.random() * 0.15;
-  const t0 = c.currentTime;
+  const t0 = c.currentTime + SCHEDULE_LEAD;
   const dur = 0.75;
 
   const osc = c.createOscillator();
@@ -438,8 +500,13 @@ function sndMobDeath(type) {
   }
 }
 
+/* Создаём контекст сразу — при загрузке скрипта. Он будет
+   в состоянии 'suspended', но уже инициализирован: samplerate,
+   число каналов и т. д. Это снимает задержку первого звука. */
+createCtx();
+
 return {
-  resume: getCtx,
+  resume: resume,
   break:  sndBreak,
   place:  sndPlace,
   step:   sndStep,
