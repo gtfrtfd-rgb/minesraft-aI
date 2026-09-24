@@ -57,7 +57,7 @@ const crackMat  = R.crackMat;
 const crackMesh = R.crackMesh;
 const updateClouds = R.updateClouds;
 
-const GAME_VERSION = 'V2.1.4';
+const GAME_VERSION = 'V2.5.TEST';
 
 const HARDNESS = {
   1: 0.55, 2: 0.45, 3: 1.30, 4: 1.10, 5: 0.45,
@@ -1376,7 +1376,6 @@ function update(dt) {
     sprintActive = false;
   }
 
-  /* --- мобы: передаём позицию игрока И радиус прорисовки в блоках --- */
   try {
     MOBS.update(dt, player.pos, settings.renderDist * CS);
   } catch (e) {
