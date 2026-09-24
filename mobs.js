@@ -1,5 +1,7 @@
 /* ============================================================
    mobs.js — мирные мобы с текстурами, звуками, HP и AI.
+   + isBlockOccupied(x,y,z) — не даёт поставить блок внутрь моба
+   + unstickMob — если моб оказался в блоке, выталкивает наверх
    ============================================================ */
 window.MOBS = (function () {
 'use strict';
@@ -13,7 +15,8 @@ if (!window.MC) {
     clear: noop, serialize: function () { return []; },
     deserialize: noop, count: function () { return 0; },
     raycast: function () { return null; }, hit: function () { return false; },
-    rebuildTextures: noop
+    rebuildTextures: noop,
+    isBlockOccupied: function () { return false; }
   };
 }
 
@@ -515,6 +518,45 @@ function raycastMob(origin, dir, maxDist) {
   return best ? { mob: best, t: bestT } : null;
 }
 
+function isBlockOccupied(bx, by, bz) {
+  for (let i = 0; i < mobs.length; i++) {
+    const m = mobs[i];
+    if (m.dead) continue;
+    const r = m.def.r, h = m.def.h;
+    const minX = m.pos.x - r, maxX = m.pos.x + r;
+    const minY = m.pos.y,     maxY = m.pos.y + h;
+    const minZ = m.pos.z - r, maxZ = m.pos.z + r;
+
+    if (bx + 1 <= minX) continue;
+    if (bx     >= maxX) continue;
+    if (by + 1 <= minY) continue;
+    if (by     >= maxY) continue;
+    if (bz + 1 <= minZ) continue;
+    if (bz     >= maxZ) continue;
+    return true;
+  }
+  return false;
+}
+
+function unstickMob(mob) {
+  const r = mob.def.r, h = mob.def.h;
+  if (!mobCollides(mob.pos.x, mob.pos.y, mob.pos.z, r, h)) return;
+
+  for (let k = 1; k <= 14; k++) {
+    const ny = mob.pos.y + 0.3 * k;
+    if (!mobCollides(mob.pos.x, ny, mob.pos.z, r, h)) {
+      mob.pos.y = ny;
+      mob.vel.y = 0;
+      return;
+    }
+  }
+  const ix = Math.floor(mob.pos.x), iz = Math.floor(mob.pos.z);
+  if (ix >= 0 && ix < SX && iz >= 0 && iz < SZ) {
+    mob.pos.y = highestAt(ix, iz) + 0.5;
+    mob.vel.y = 0;
+  }
+}
+
 function updateMob(mob, dt) {
   const def = mob.def;
 
@@ -522,6 +564,8 @@ function updateMob(mob, dt) {
     mob.group.visible = false;
     return;
   }
+
+  unstickMob(mob);
 
   if (mob.hurtTimer > 0) {
     mob.hurtTimer -= dt;
@@ -775,7 +819,8 @@ return {
   count: function () { return mobs.length; },
   raycast: raycast,
   hit: hit,
-  rebuildTextures: rebuildTextures
+  rebuildTextures: rebuildTextures,
+  isBlockOccupied: isBlockOccupied
 };
 
 })();

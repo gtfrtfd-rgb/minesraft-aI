@@ -5,7 +5,8 @@
    + ОБРАБОТКА ПОТЕРИ WebGL-КОНТЕКСТА
    + ПРИСЕДАНИЕ: Shift на ПК, ↓ на телефоне
    + В ПОЛЁТЕ на телефоне: ↑ — вверх, ↓ — вниз
-   + Чувствительность камеры на телефоне увеличена ×2
+   + Чувствительность камеры на телефоне ×2
+   + Блок нельзя ставить внутрь моба
    ============================================================ */
 (function () {
 'use strict';
@@ -23,11 +24,11 @@ function fatal(msg) {
 }
 
 if (typeof THREE === 'undefined') {
-  fatal('Библиотека three.js не загрузилась. Проверьте подключение к интернету — она грузится с cdnjs.cloudflare.com.');
+  fatal('Библиотека three.js не загрузилась. Проверьте подключение к интернету.');
   return;
 }
 if (!window.MC || !window.MC.generateWorld) {
-  fatal('world.js не загрузился или упал. Проверьте, что файл лежит рядом с index.html и в консоли нет ошибок.');
+  fatal('world.js не загрузился или упал. Проверьте, что файл лежит рядом с index.html.');
   return;
 }
 
@@ -42,7 +43,7 @@ const generateWorld = MC.generateWorld;
 const buildChunk = MC.buildChunk, buildAllChunks = MC.buildAllChunks;
 const rebuildAround = MC.rebuildAround, rebuildAll = MC.rebuildAll;
 
-const GAME_VERSION = 'V2.1.3';
+const GAME_VERSION = 'V2.1.3.2';
 
 const isMobile = ('ontouchstart' in window) ||
                  (navigator.maxTouchPoints > 0) ||
@@ -73,6 +74,7 @@ const MOBS = (function () {
   const m = window.MOBS;
   if (m && m.raycast && m.hit) {
     if (!m.rebuildTextures) m.rebuildTextures = function () {};
+    if (!m.isBlockOccupied) m.isBlockOccupied = function () { return false; };
     return m;
   }
   console.warn('[game.js] mobs.js не загрузился полностью — мобы отключены');
@@ -87,7 +89,8 @@ const MOBS = (function () {
     count: function () { return 0; },
     raycast: function () { return null; },
     hit: function () { return false; },
-    rebuildTextures: noop
+    rebuildTextures: noop,
+    isBlockOccupied: function () { return false; }
   };
 })();
 
@@ -98,7 +101,6 @@ const BASE_FOV = 75;
 const SPRINT_FOV = 82;
 const FLY_FOV    = 80;
 
-/* Высота глаз: стоя / присев */
 const EYE_STAND   = 1.62;
 const EYE_CROUCH  = 1.28;
 let   eyeBlend    = 0;
@@ -939,7 +941,6 @@ if (isMobile) {
   joyEl.addEventListener('touchend',    joyReset);
   joyEl.addEventListener('touchcancel', joyReset);
 
-  /* Чувствительность обзора на телефоне: было 0.005, стало 0.010 (×2) */
   const LOOK_SENS = 0.010;
   let lookTouchId = null;
   let lastLookX = 0, lastLookY = 0;
@@ -1081,7 +1082,7 @@ if (isMobile) {
     }, { passive: false });
   }
 
-  console.log('[game.js] мобильный режим активен, LOOK_SENS =', LOOK_SENS);
+  console.log('[game.js] мобильный режим активен');
 }
 
 /* ============================================================
@@ -1176,6 +1177,8 @@ function placeBlock() {
   const py0 = player.pos.y,      py1 = player.pos.y + PH;
   const pz0 = player.pos.z - PR, pz1 = player.pos.z + PR;
   if (p.x + 1 > px0 && p.x < px1 && p.y + 1 > py0 && p.y < py1 && p.z + 1 > pz0 && p.z < pz1) return;
+
+  if (MOBS.isBlockOccupied && MOBS.isBlockOccupied(p.x, p.y, p.z)) return;
 
   const id = HOTBAR[selected];
   world[IDX(p.x, p.y, p.z)] = id;
@@ -1626,9 +1629,7 @@ function loop(now) {
 
   try {
     renderer.render(scene, camera);
-  } catch (e) {
-    // при потере контекста render может кинуть — ждём восстановления
-  }
+  } catch (e) {}
 }
 
 requestAnimationFrame(loop);
