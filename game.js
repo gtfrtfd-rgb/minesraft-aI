@@ -1,11 +1,8 @@
 /* ============================================================
-   game.js
-   + МОБИЛЬНАЯ ПОДДЕРЖКА
-   + НАСТРОЙКИ: громкость, полный экран, перетаскивание
-   + ПРИСЕДАНИЕ: Shift на ПК, ↓ на телефоне
-   + В ПОЛЁТЕ на телефоне: ↑ — вверх, ↓ — вниз
-   + Блок нельзя ставить внутрь моба
-   + RLE-СЖАТИЕ сохранения (лечит QuotaExceededError)
+   game.js — игровая логика.
+   + RLE-сжатие сохранения
+   + НАСТРОЙКА ПРОРИСОВКИ (render distance)
+   + Мобы скрываются за пределами прорисовки
    ============================================================ */
 (function () {
 'use strict';
@@ -25,7 +22,7 @@ function fatal(msg) {
 const R = window.RENDER;
 if (!R || !R.ok) {
   if (!R) fatal('render.js не загрузился.');
-  else if (R.reason === 'no-three') fatal('Библиотека three.js не загрузилась. Проверьте подключение к интернету.');
+  else if (R.reason === 'no-three') fatal('Библиотека three.js не загрузилась.');
   else if (R.reason === 'no-mc') fatal('world.js не загрузился или упал.');
   else fatal('Не удалось инициализировать движок.');
   return;
@@ -38,6 +35,7 @@ if (!window.MC || !window.MC.generateWorld) {
 const MC = window.MC;
 const SX = MC.SX, SZ = MC.SZ, SY = MC.SY;
 const CHX = MC.CHX, CHZ = MC.CHZ;
+const CS = MC.CS;
 const world = MC.world, IDX = MC.IDX, SAVE_KEY = MC.SAVE_KEY;
 const BLOCKS = MC.BLOCKS, ACOLS = MC.ACOLS;
 const atlasCanvas = MC.atlasCanvas;
@@ -45,6 +43,7 @@ const isSolid = MC.isSolid, highestAt = MC.highestAt;
 const generateWorld = MC.generateWorld;
 const buildChunk = MC.buildChunk;
 const rebuildAround = MC.rebuildAround, rebuildAll = MC.rebuildAll;
+const updateChunkVisibility = MC.updateChunkVisibility;
 
 const scene = R.scene;
 const renderer = R.renderer;
@@ -58,9 +57,8 @@ const crackMat  = R.crackMat;
 const crackMesh = R.crackMesh;
 const updateClouds = R.updateClouds;
 
-const GAME_VERSION = 'V2.1.3.2';
+const GAME_VERSION = 'V2.1.4';
 
-/* Твёрдость блоков — сколько секунд держать ЛКМ, чтобы сломать */
 const HARDNESS = {
   1: 0.55, 2: 0.45, 3: 1.30, 4: 1.10, 5: 0.45,
   6: 0.85, 7: 0.20, 8: 0.85, 9: 1.20,
@@ -118,7 +116,7 @@ const MOBS = (function () {
 MOBS.init(scene);
 
 /* ============================================================
-   1. ПОДСВЕТКА ВЫБРАННОГО БЛОКА
+   1. ПОДСВЕТКА
    ============================================================ */
 const hlBox = new THREE.LineSegments(
   new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004)),
@@ -130,26 +128,33 @@ scene.add(hlBox);
 /* ============================================================
    2. НАСТРОЙКИ
    ============================================================ */
-const SETTINGS_KEY = 'mcweb_settings_v1';
+const SETTINGS_KEY = 'mcweb_settings_v2';
 
 function loadSettings() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return { volume: 1 };
+    if (!raw) return { volume: 1, renderDist: 6 };
     const d = JSON.parse(raw);
-    return { volume: typeof d.volume === 'number' ? d.volume : 1 };
-  } catch (e) { return { volume: 1 }; }
+    return {
+      volume: typeof d.volume === 'number' ? d.volume : 1,
+      renderDist: typeof d.renderDist === 'number' ? d.renderDist : 6
+    };
+  } catch (e) { return { volume: 1, renderDist: 6 }; }
 }
 function saveSettings(s) {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) {}
 }
 
 const settings = loadSettings();
+if (settings.renderDist < 2) settings.renderDist = 2;
+if (settings.renderDist > 12) settings.renderDist = 12;
 
 const settingsBtn   = document.getElementById('btn-settings');
 const settingsPanel = document.getElementById('settings-panel');
 const volSlider     = document.getElementById('set-volume');
 const volValueEl    = document.getElementById('set-volume-val');
+const renderSlider  = document.getElementById('set-render');
+const renderValueEl = document.getElementById('set-render-val');
 const fsCheckbox    = document.getElementById('set-fullscreen');
 
 SFX.setVolume(settings.volume);
@@ -162,6 +167,24 @@ volSlider.addEventListener('input', function () {
   volValueEl.textContent = Math.round(v * 100) + '%';
   settings.volume = v;
   saveSettings(settings);
+});
+
+renderSlider.value = settings.renderDist;
+renderValueEl.textContent = settings.renderDist;
+
+function applyRenderDistance() {
+  const rdBlocks = settings.renderDist * CS;
+  scene.fog.near = Math.max(20, rdBlocks * 0.75);
+  scene.fog.far  = rdBlocks * 1.25;
+  updateChunkVisibility(player.pos.x, player.pos.z, rdBlocks);
+}
+
+renderSlider.addEventListener('input', function () {
+  const v = parseInt(renderSlider.value, 10);
+  settings.renderDist = v;
+  renderValueEl.textContent = v;
+  saveSettings(settings);
+  applyRenderDistance();
 });
 
 function isFullscreen() {
@@ -321,7 +344,7 @@ if (!isMobile && settingsDragHandle) {
 }
 
 /* ============================================================
-   3. ЗДОРОВЬЕ ИГРОКА
+   3. ЗДОРОВЬЕ
    ============================================================ */
 const MAX_HP = 20;
 const HEARTS = MAX_HP / 2;
@@ -411,6 +434,7 @@ function respawnFromDeath() {
   player.crouch = false;
   if (!isMobile) lockPointer();
   else { locked = true; menu.style.display = 'none'; }
+  applyRenderDistance();
 }
 
 respawnBtn.addEventListener('click', function (e) {
@@ -963,15 +987,8 @@ function showHint(text) {
 const infoEl = document.getElementById('info');
 
 /* ============================================================
-   8. СОХРАНЕНИЕ (RLE-сжатие)
-   ------------------------------------------------------------
-   Мир состоит из больших серий одинаковых блоков (воздух,
-   камень вглубь, трава по поверхности), поэтому RLE даёт
-   сжатие в 20–50×. Это лечит QuotaExceededError, когда
-   3.15 млн блоков в base64 не влезают в localStorage.
+   8. СОХРАНЕНИЕ (RLE)
    ============================================================ */
-
-/* Base64 */
 function u8ToB64(u8) {
   let s = '';
   const CH = 0x8000;
@@ -986,8 +1003,6 @@ function b64ToU8(str) {
   return u8;
 }
 
-/* RLE: тройки байт [значение, длина_lo, длина_hi].
-   Максимальная длина серии — 65535, поэтому серии режем. */
 function rleEncode(arr) {
   const out = [];
   const n = arr.length;
@@ -1022,8 +1037,7 @@ function saveGame() {
   try {
     const compressed = rleEncode(world);
     localStorage.setItem(SAVE_KEY, JSON.stringify({
-      v: 2,
-      rle: 1,
+      v: 2, rle: 1,
       seed: worldSeed,
       w: u8ToB64(compressed),
       px: player.pos.x, py: player.pos.y, pz: player.pos.z,
@@ -1046,7 +1060,6 @@ function loadGame() {
       const unpacked = rleDecode(bytes, world.length);
       world.set(unpacked);
     } else {
-      // Старое сохранение без сжатия — только если размер совпадает
       if (bytes.length !== world.length) return false;
       world.set(bytes);
     }
@@ -1075,6 +1088,7 @@ function newWorld() {
   refreshHearts();
   MOBS.spawnInitial(40);
   saveGame();
+  applyRenderDistance();
   showHint('Создан новый мир');
 }
 
@@ -1149,9 +1163,11 @@ function buildChunksAsync(onProgress, onDone) {
             }
             wasOnGround = true;
             highestAirY = player.pos.y;
+            applyRenderDistance();
             showLoading(false);
             console.log('[game.js] init OK. Игрок:', player.pos.toArray(),
                         '| мобов:', MOBS.count(), '| hp:', hp,
+                        '| renderDist:', settings.renderDist,
                         '| mobile:', isMobile, '| version:', GAME_VERSION);
           }
         );
@@ -1177,6 +1193,21 @@ const STEP_DIST_WALK   = 1.6;
 const STEP_DIST_SPRINT = 1.25;
 let stepAcc = 0;
 let sprintActive = false;
+
+let lastVisChunkCx = -99999;
+let lastVisChunkCz = -99999;
+let lastVisRadius  = -1;
+
+function maybeUpdateChunkVisibility() {
+  const cx = Math.floor(player.pos.x / CS);
+  const cz = Math.floor(player.pos.z / CS);
+  if (cx === lastVisChunkCx && cz === lastVisChunkCz &&
+      settings.renderDist === lastVisRadius) return;
+  lastVisChunkCx = cx;
+  lastVisChunkCz = cz;
+  lastVisRadius  = settings.renderDist;
+  updateChunkVisibility(player.pos.x, player.pos.z, settings.renderDist * CS);
+}
 
 function update(dt) {
   if (attackTimer > 0) attackTimer -= dt;
@@ -1345,8 +1376,9 @@ function update(dt) {
     sprintActive = false;
   }
 
+  /* --- мобы: передаём позицию игрока И радиус прорисовки в блоках --- */
   try {
-    MOBS.update(dt, player.pos);
+    MOBS.update(dt, player.pos, settings.renderDist * CS);
   } catch (e) {
     console.error('mobs update error', e);
   }
@@ -1371,6 +1403,8 @@ function update(dt) {
   }
 
   updateBreaking(dt);
+
+  maybeUpdateChunkVisibility();
 
   saveTimer += dt;
   if (saveTimer > 12) {
@@ -1398,7 +1432,7 @@ function loop(now) {
 
   infoEl.textContent =
     'XYZ: ' + player.pos.x.toFixed(1) + ' / ' + player.pos.y.toFixed(1) + ' / ' + player.pos.z.toFixed(1) + '\n' +
-    'FPS: ' + fpsVal + '  ·  ' + GAME_VERSION;
+    'FPS: ' + fpsVal + '  ·  R: ' + settings.renderDist + '  ·  ' + GAME_VERSION;
 
   try {
     renderer.render(scene, camera);

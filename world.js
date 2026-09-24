@@ -1,10 +1,16 @@
 /* ============================================================
    world.js — мир 256×256×48 с биомами и улучшенным рельефом.
+   + userData (cx, cz) на чанк-мешах для управления видимостью
+   + updateChunkVisibility(px, pz, radius) — скрывает чанки вне
+     радиуса прорисовки (как render distance в Minecraft)
    ============================================================ */
 window.MC = window.MC || {};
 (function (MC) {
 'use strict';
 
+/* ============================================================
+   1. КОНСТАНТЫ И МИРОВОЙ МАССИВ
+   ============================================================ */
 const SX = 256, SZ = 256, SY = 48;
 const CS = 16;
 const CHX = SX / CS, CHZ = SZ / CS;
@@ -18,6 +24,9 @@ const BIOME_DESERT   = 2;
 const BIOME_SNOW     = 3;
 const BIOME_MOUNTAIN = 4;
 
+/* ============================================================
+   2. ГЕНЕРАТОР СЛУЧАЙНЫХ ЧИСЕЛ + ШУМ
+   ============================================================ */
 let _r = 123456789;
 function rnd() {
   _r = (Math.imul(_r, 1103515245) + 12345) & 0x7fffffff;
@@ -37,6 +46,9 @@ function vnoise(x, z, s) {
   return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v;
 }
 
+/* ============================================================
+   3. ТЕКСТУРНЫЙ АТЛАС
+   ============================================================ */
 const TILE = 16, ACOLS = 4, AROWS = 4;
 const atlasCanvas = document.createElement('canvas');
 atlasCanvas.width  = TILE * ACOLS;
@@ -123,6 +135,9 @@ atlasTexture.minFilter = THREE.NearestFilter;
 atlasTexture.generateMipmaps = false;
 atlasTexture.wrapS = atlasTexture.wrapT = THREE.ClampToEdgeWrapping;
 
+/* ============================================================
+   4. ОПРЕДЕЛЕНИЯ БЛОКОВ
+   ============================================================ */
 const BLOCKS = {
   1:  { name: 'Трава',     top: 0,  side: 1,  bottom: 2  },
   2:  { name: 'Земля',     top: 2,  side: 2,  bottom: 2  },
@@ -138,6 +153,9 @@ const BLOCKS = {
   12: { name: 'Обсидиан',  top: 13, side: 13, bottom: 13 }
 };
 
+/* ============================================================
+   5. ГЕНЕРАЦИЯ МИРА
+   ============================================================ */
 function generateWorld(s) {
   world.fill(0);
   _r = (s >>> 0) || 1;
@@ -183,7 +201,6 @@ function generateWorld(s) {
 
       for (let y = 0; y <= h; y++) {
         let b;
-
         if (y === 0) {
           b = 12;
         } else if (y < h - 3) {
@@ -203,7 +220,6 @@ function generateWorld(s) {
           else if (biome === BIOME_MOUNTAIN)             b = (h > 32) ? 11 : 3;
           else                                           b = 1;
         }
-
         world[IDX(x, y, z)] = b;
       }
     }
@@ -220,19 +236,15 @@ function plantTrees(heights, biomes, count, targetBiome, kind) {
     const x = 4 + Math.floor(rnd() * (SX - 8));
     const z = 4 + Math.floor(rnd() * (SZ - 8));
     if (biomes[x + z * SX] !== targetBiome) continue;
-
     const h = heights[x + z * SX];
     if (targetBiome === BIOME_MOUNTAIN && h > 28) continue;
-
     const top = world[IDX(x, h, z)];
     if (top !== 1 && top !== 11 && top !== 3 && top !== 5) continue;
-
     let ok = true;
     for (let dx = -2; dx <= 2 && ok; dx++)
       for (let dz = -2; dz <= 2; dz++)
         if (world[IDX(x + dx, h + 3, z + dz)] === 6) { ok = false; break; }
     if (!ok) continue;
-
     if (kind === 'oak')  buildOak(x, h + 1, z);
     if (kind === 'pine') buildPine(x, h + 1, z);
   }
@@ -240,9 +252,7 @@ function plantTrees(heights, biomes, count, targetBiome, kind) {
 
 function buildOak(x, y, z) {
   const th = 4 + Math.floor(rnd() * 3);
-  for (let i = 0; i < th; i++) {
-    if (y + i < SY) world[IDX(x, y + i, z)] = 6;
-  }
+  for (let i = 0; i < th; i++) if (y + i < SY) world[IDX(x, y + i, z)] = 6;
   const top = y + th;
   for (let dy = -2; dy <= 1; dy++) {
     const r = dy <= -1 ? 2 : 1;
@@ -261,9 +271,7 @@ function buildOak(x, y, z) {
 
 function buildPine(x, y, z) {
   const th = 6 + Math.floor(rnd() * 3);
-  for (let i = 0; i < th; i++) {
-    if (y + i < SY) world[IDX(x, y + i, z)] = 6;
-  }
+  for (let i = 0; i < th; i++) if (y + i < SY) world[IDX(x, y + i, z)] = 6;
   const top = y + th;
   for (let layer = 0; layer < 5; layer++) {
     const r = Math.max(0, 2 - Math.floor(layer * 0.55));
@@ -280,26 +288,30 @@ function buildPine(x, y, z) {
   }
 }
 
+/* ============================================================
+   6. ДОСТУП К БЛОКАМ
+   ============================================================ */
 function getBlock(x, y, z) {
   if (x < 0 || x >= SX || z < 0 || z >= SZ) return 0;
   if (y < 0) return 1;
   if (y >= SY) return 0;
   return world[IDX(x, y, z)];
 }
-
 function isSolid(x, y, z) {
   if (y < 0) return true;
   if (y >= SY) return false;
   if (x < 0 || x >= SX || z < 0 || z >= SZ) return false;
   return world[IDX(x, y, z)] !== 0;
 }
-
 function highestAt(x, z) {
   for (let y = SY - 1; y >= 0; y--)
     if (world[IDX(x, y, z)] !== 0) return y + 1;
   return 1;
 }
 
+/* ============================================================
+   7. МЕШИ ЧАНКОВ
+   ============================================================ */
 const matOpaque = new THREE.MeshBasicMaterial({ map: atlasTexture, vertexColors: true });
 const matTrans  = new THREE.MeshBasicMaterial({
   map: atlasTexture, vertexColors: true, transparent: true,
@@ -383,8 +395,13 @@ function buildChunk(cx, cz) {
 
   const mO = new THREE.Mesh(makeGeom(O), matOpaque);
   mO.frustumCulled = true;
+  mO.userData.cx = cx;
+  mO.userData.cz = cz;
+
   const mT = new THREE.Mesh(makeGeom(T), matTrans);
   mT.frustumCulled = true;
+  mT.userData.cx = cx;
+  mT.userData.cz = cz;
   mT.renderOrder = 1;
 
   chunkGroup.add(mO);
@@ -422,6 +439,33 @@ function rebuildAll() {
   buildAllChunks();
 }
 
+/* ============================================================
+   8. УПРАВЛЕНИЕ ВИДИМОСТЬЮ ЧАНКОВ (как render distance в MC)
+   ------------------------------------------------------------
+   Скрывает чанки, чей центр дальше radius блоков от игрока.
+   Так как фон и туман совпадают, дальние чанки плавно
+   исчезают в дымке.
+   ============================================================ */
+function updateChunkVisibility(px, pz, radius) {
+  const r2 = radius * radius;
+  chunks.forEach(function (c, key) {
+    const parts = key.split(',');
+    const cx = parseInt(parts[0], 10);
+    const cz = parseInt(parts[1], 10);
+    // центр чанка
+    const centerX = cx * CS + CS * 0.5;
+    const centerZ = cz * CS + CS * 0.5;
+    const dx = centerX - px;
+    const dz = centerZ - pz;
+    const visible = (dx * dx + dz * dz) <= r2;
+    c.opaque.visible = visible;
+    c.trans.visible  = visible;
+  });
+}
+
+/* ============================================================
+   9. ЭКСПОРТ
+   ============================================================ */
 MC.SX = SX; MC.SZ = SZ; MC.SY = SY;
 MC.CS = CS; MC.CHX = CHX; MC.CHZ = CHZ;
 MC.world = world;
@@ -443,6 +487,7 @@ MC.buildChunk = buildChunk;
 MC.buildAllChunks = buildAllChunks;
 MC.rebuildAround = rebuildAround;
 MC.rebuildAll = rebuildAll;
+MC.updateChunkVisibility = updateChunkVisibility;
 
 console.log('[world.js] готов. Размер:', SX, '×', SZ, '×', SY, '=', (SX * SZ * SY / 1000000).toFixed(2), 'млн блоков');
 

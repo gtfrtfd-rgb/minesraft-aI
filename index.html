@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Minecraft Web</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%237ec850'/></svg>">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -44,6 +45,12 @@
   </label>
 
   <label class="setting-row">
+    <span class="setting-label">Прорисовка</span>
+    <input type="range" id="set-render" min="2" max="12" step="1" value="6">
+    <span class="setting-value" id="set-render-val">6</span>
+  </label>
+
+  <label class="setting-row">
     <span class="setting-label">Полный экран</span>
     <span class="setting-toggle">
       <input type="checkbox" id="set-fullscreen">
@@ -51,8 +58,8 @@
     </span>
   </label>
 
+  <div class="settings-hint">Прорисовка: <b>2–12</b> чанков (32–192 блока)<br>Меньше — выше FPS, больше — видно дальше</div>
   <div class="settings-hint">На ПК: <b>O</b> — открыть/закрыть · <b>Esc</b> — выйти из полного экрана</div>
-  <div class="settings-hint">Заголовок «Настройки» можно перетаскивать мышью</div>
 </div>
 
 <div id="death">

@@ -2,6 +2,7 @@
    mobs.js — мирные мобы с текстурами, звуками, HP и AI.
    + isBlockOccupied(x,y,z) — не даёт поставить блок внутрь моба
    + unstickMob — если моб оказался в блоке, выталкивает наверх
+   + Скрытие мобов за пределами радиуса прорисовки
    ============================================================ */
 window.MOBS = (function () {
 'use strict';
@@ -22,6 +23,7 @@ if (!window.MC) {
 
 const MC = window.MC;
 const SX = MC.SX, SZ = MC.SZ, SY = MC.SY;
+const CS = MC.CS;
 const world = MC.world, IDX = MC.IDX;
 const isSolid = MC.isSolid, highestAt = MC.highestAt;
 
@@ -30,6 +32,8 @@ const mobs = [];
 
 let playerPos = null;
 let lastMobSoundTime = -99999;
+/* Радиус прорисовки в блоках — обновляется из game.js */
+let renderDistBlocks = 6 * CS;
 
 const GRAVITY = 28;
 const JUMP_VELOCITY = 8.6;
@@ -39,6 +43,9 @@ const SOUND_INTERVAL_MAX = 16;
 const PANIC_DURATION = 4.0;
 const PANIC_SPEED_MULT = 1.6;
 const LEG_SWING = 0.55;
+/* Запас: скрываем моба на 1 блок раньше границы видимости,
+   чтобы он не «выскакивал» резко на самом краю */
+const VISIBILITY_MARGIN = 1.0;
 
 function cl(v) { return v < 0 ? 0 : v > 255 ? 255 : (v | 0); }
 function fract(v) { return v - Math.floor(v); }
@@ -471,6 +478,8 @@ function raycastMob(origin, dir, maxDist) {
   for (let i = 0; i < mobs.length; i++) {
     const m = mobs[i];
     if (m.dead) continue;
+    /* не даём целиться в мобов, скрытых за границей прорисовки */
+    if (!m.group.visible) continue;
     const r = m.def.r, h = m.def.h;
     const minX = m.pos.x - r, maxX = m.pos.x + r;
     const minY = m.pos.y,     maxY = m.pos.y + h;
@@ -554,6 +563,27 @@ function unstickMob(mob) {
   if (ix >= 0 && ix < SX && iz >= 0 && iz < SZ) {
     mob.pos.y = highestAt(ix, iz) + 0.5;
     mob.vel.y = 0;
+  }
+}
+
+/* --- Видимость моба: скрываем, если за пределами радиуса --- */
+function updateMobVisibility(mob) {
+  if (!playerPos) return;
+  const dx = mob.pos.x - playerPos.x;
+  const dz = mob.pos.z - playerPos.z;
+  const limit = renderDistBlocks + VISIBILITY_MARGIN;
+  const visible = (dx * dx + dz * dz) <= limit * limit;
+
+  /* Если у моба сейчас hurtTimer мигает — не мешаем миганию:
+     при visible=true флаг мигания уже обрабатывается в updateMob. */
+  if (mob.hurtTimer > 0) {
+    if (visible) {
+      // мигание под контролем updateMob, не перебиваем
+    } else {
+      mob.group.visible = false;
+    }
+  } else {
+    mob.group.visible = visible;
   }
 }
 
@@ -679,6 +709,9 @@ function updateMob(mob, dt) {
   mob.group.position.copy(mob.pos);
   mob.group.rotation.y = mob.yaw;
 
+  /* --- видимость: скрываем, если игрок далеко --- */
+  updateMobVisibility(mob);
+
   if (mob.pos.y < -10) {
     const ix = Math.floor(mob.pos.x), iz = Math.floor(mob.pos.z);
     if (ix >= 0 && ix < SX && iz >= 0 && iz < SZ) {
@@ -785,8 +818,11 @@ function init(sc) {
   scene = sc;
 }
 
-function update(dt, pPos) {
+function update(dt, pPos, renderDistanceBlocks) {
   if (pPos) playerPos = pPos;
+  if (typeof renderDistanceBlocks === 'number' && renderDistanceBlocks > 0) {
+    renderDistBlocks = renderDistanceBlocks;
+  }
   for (let i = 0; i < mobs.length; i++) updateMob(mobs[i], dt);
 
   for (let i = mobs.length - 1; i >= 0; i--) {
