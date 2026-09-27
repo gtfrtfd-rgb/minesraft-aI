@@ -6,6 +6,10 @@
    + НАСТРОЙКА ЛИМИТА FPS (15 · 30 · 60 · 90 · 120 · 144 · 165 · 180 · 240 · ∞)
    + DDA-рейкаст блоков (быстрее в ~20 раз)
    + FIX: prev-клетка при установке блока через диагональный луч
+   + РЕЖИМЫ: Выживание и Креатив (G или кнопка в настройках)
+   + FIX: полёт доступен ТОЛЬКО в креативе (F, кнопка ✈)
+   + FIX: в креативе ломается только один блок за нажатие
+   + FIX: HP скрыто в креативе
    ============================================================ */
 (function () {
 'use strict';
@@ -135,7 +139,7 @@ scene.add(hlBox);
    2. НАСТРОЙКИ
    ============================================================ */
 const SETTINGS_KEY = 'mcweb_settings_v2';
-const DEFAULT_SETTINGS = { volume: 1, renderDist: 6, fpsLimitIdx: 2 };
+const DEFAULT_SETTINGS = { volume: 1, renderDist: 6, fpsLimitIdx: 2, gameMode: 'survival' };
 
 function loadSettings() {
   try {
@@ -145,7 +149,8 @@ function loadSettings() {
     return {
       volume: typeof d.volume === 'number' ? d.volume : 1,
       renderDist: typeof d.renderDist === 'number' ? d.renderDist : 6,
-      fpsLimitIdx: typeof d.fpsLimitIdx === 'number' ? d.fpsLimitIdx : 2
+      fpsLimitIdx: typeof d.fpsLimitIdx === 'number' ? d.fpsLimitIdx : 2,
+      gameMode: d.gameMode === 'creative' ? 'creative' : 'survival'
     };
   } catch (e) { return Object.assign({}, DEFAULT_SETTINGS); }
 }
@@ -159,6 +164,7 @@ if (settings.renderDist > 12) settings.renderDist = 12;
 if (settings.fpsLimitIdx < 0) settings.fpsLimitIdx = 0;
 if (settings.fpsLimitIdx >= FPS_OPTIONS.length) settings.fpsLimitIdx = FPS_OPTIONS.length - 1;
 let fpsLimit = FPS_OPTIONS[settings.fpsLimitIdx];
+let gameMode = settings.gameMode;
 
 const settingsBtn   = document.getElementById('btn-settings');
 const settingsPanel = document.getElementById('settings-panel');
@@ -212,6 +218,98 @@ fpsSlider.addEventListener('input', function () {
   fpsLimit = FPS_OPTIONS[v];
   fpsValueEl.textContent = FPS_LABELS[v];
   saveSettings(settings);
+});
+
+/* ------------------------------------------------------------
+   РЕЖИМ ИГРЫ: Выживание / Креатив
+   ------------------------------------------------------------ */
+const modeBtn = document.createElement('button');
+modeBtn.type = 'button';
+modeBtn.id = 'set-mode';
+modeBtn.style.cssText =
+  'background:linear-gradient(#6fbf3f,#4e9128);border:none;color:#fff;' +
+  'padding:6px 16px;border-radius:6px;cursor:pointer;font-weight:600;' +
+  'font-size:12px;letter-spacing:.3px;box-shadow:0 2px 0 #2f5a17;' +
+  'font-family:inherit;flex-shrink:0;transition:filter .1s,transform .08s;';
+modeBtn.textContent = (gameMode === 'creative') ? 'Креатив' : 'Выживание';
+
+modeBtn.addEventListener('mouseenter', function () { modeBtn.style.filter = 'brightness(1.1)'; });
+modeBtn.addEventListener('mouseleave', function () { modeBtn.style.filter = ''; });
+modeBtn.addEventListener('mousedown', function () { modeBtn.style.transform = 'translateY(2px)'; });
+modeBtn.addEventListener('mouseup',   function () { modeBtn.style.transform = ''; });
+
+const modeRow = document.createElement('div');
+modeRow.className = 'setting-row';
+const modeLabel = document.createElement('span');
+modeLabel.className = 'setting-label';
+modeLabel.textContent = 'Режим игры';
+modeRow.appendChild(modeLabel);
+modeRow.appendChild(modeBtn);
+
+const firstHint = settingsPanel.querySelector('.settings-hint');
+if (firstHint) settingsPanel.insertBefore(modeRow, firstHint);
+else settingsPanel.appendChild(modeRow);
+
+/* Кнопка полёта: видна только в креативе (на мобильных). */
+function updateMobileFlyBtn() {
+  if (!isMobile) return;
+  const bf = document.getElementById('btn-fly');
+  if (bf) bf.style.display = (gameMode === 'creative') ? 'flex' : 'none';
+}
+
+/* HP скрывается в креативе и возвращается в выживании. */
+function updateHealthVisibility() {
+  const h = document.getElementById('health');
+  if (!h) return;
+  h.style.display = (gameMode === 'creative') ? 'none' : 'flex';
+}
+
+/* Смена режима. silent = true — без подсказки и без авто-полёта. */
+function setGameMode(mode, silent) {
+  if (mode !== 'creative') mode = 'survival';
+  const prev = gameMode;
+  gameMode = mode;
+  settings.gameMode = mode;
+  saveSettings(settings);
+
+  if (gameMode === 'creative') {
+    hp = MAX_HP;
+    refreshHearts();
+    if (!silent) {
+      player.fly = true;
+      player.vel.y = 0;
+      wasOnGround = false;
+      highestAirY = player.pos.y;
+      showHint('Режим: Креатив');
+    }
+    modeBtn.textContent = 'Креатив';
+    modeBtn.style.background = 'linear-gradient(#5aa5ff,#2f7fd8)';
+    modeBtn.style.boxShadow = '0 2px 0 #1c4f80';
+  } else {
+    if (!silent) showHint('Режим: Выживание');
+    if (prev === 'creative' || player.fly) {
+      player.fly = false;
+      player.vel.y = 0;
+      wasOnGround = false;
+      highestAirY = player.pos.y;
+    }
+    modeBtn.textContent = 'Выживание';
+    modeBtn.style.background = 'linear-gradient(#6fbf3f,#4e9128)';
+    modeBtn.style.boxShadow = '0 2px 0 #2f5a17';
+  }
+
+  /* Сброс флага «уже сломали в этом нажатии» */
+  creativeBrokeThisClick = false;
+
+  updateMobileFlyBtn();
+  updateHealthVisibility();
+
+  if (typeof stopBreaking === 'function' && breaking.active) stopBreaking();
+}
+
+modeBtn.addEventListener('click', function (e) {
+  e.stopPropagation();
+  setGameMode(gameMode === 'creative' ? 'survival' : 'creative', false);
 });
 
 /* --- Полный экран --- */
@@ -407,6 +505,7 @@ function flashHurt() {
 
 function damagePlayer(amount, silent) {
   if (dead || amount <= 0) return;
+  if (gameMode === 'creative') return;
   hp -= amount;
   if (hp < 0) hp = 0;
   lastDamageTime = performance.now();
@@ -428,6 +527,7 @@ function healPlayer(amount) {
 
 function die() {
   if (dead) return;
+  if (gameMode === 'creative') { hp = MAX_HP; refreshHearts(); return; }
   dead = true;
   player.fly = false;
   player.crouch = false;
@@ -539,8 +639,13 @@ const DOUBLE_TAP_MS = 280;
 const lastTap = { KeyW: 0, ArrowUp: 0 };
 const doubleLock = { KeyW: false, ArrowUp: false };
 
+/* Полёт разрешён только в креативе */
 function toggleFly() {
   if (dead) return;
+  if (gameMode !== 'creative') {
+    showHint('Полёт доступен только в Креативе');
+    return;
+  }
   player.fly = !player.fly;
   player.vel.y = 0;
   wasOnGround = false;
@@ -606,6 +711,10 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.code === 'KeyF' && !e.repeat) toggleFly();
 
+  if (e.code === 'KeyG' && !e.repeat) {
+    setGameMode(gameMode === 'creative' ? 'survival' : 'creative', false);
+  }
+
   if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) {
     player.crouch = true;
   }
@@ -647,13 +756,17 @@ renderer.domElement.addEventListener('mousedown', (e) => {
     breaking.active = false;
     breaking.progress = 0;
     breaking.stage = 0;
+    creativeBrokeThisClick = false;
   }
   if (e.button === 2) placeBlock();
 });
 renderer.domElement.addEventListener('mouseup', (e) => {
   if (isMobile) return;
   mouseDown[e.button] = false;
-  if (e.button === 0) stopBreaking();
+  if (e.button === 0) {
+    stopBreaking();
+    creativeBrokeThisClick = false;
+  }
 });
 
 document.addEventListener('wheel', (e) => {
@@ -788,9 +901,14 @@ if (isMobile) {
       if (dead || !locked) return;
       mouseDown[0] = true;
       breaking.active = false; breaking.progress = 0; breaking.stage = 0;
+      creativeBrokeThisClick = false;
       if (tryAttackMob() && breaking.active) stopBreaking();
     },
-    function () { mouseDown[0] = false; stopBreaking(); }
+    function () {
+      mouseDown[0] = false;
+      stopBreaking();
+      creativeBrokeThisClick = false;
+    }
   );
 
   if (btnPlace) {
@@ -854,6 +972,8 @@ if (isMobile) {
     }, { passive: false });
   }
 
+  updateMobileFlyBtn();
+
   console.log('[game.js] мобильный режим активен');
 }
 
@@ -899,8 +1019,6 @@ function raycastBlock() {
   for (let i = 0; i < 64; i++) {
     let t;
 
-    /* Сохраняем позицию ДО шага — это и есть «предыдущая» клетка
-       в пути луча, независимо от того, по какой оси мы шагнули. */
     prevX = x; prevY = y; prevZ = z;
 
     if (tMaxX < tMaxY) {
@@ -925,6 +1043,8 @@ function raycastBlock() {
 
 let currentTarget = null;
 const breaking = { active: false, target: null, progress: 0, stage: 0 };
+/* Флаг: в креативе мы уже сломали блок в текущем нажатии ЛКМ */
+let creativeBrokeThisClick = false;
 
 function stopBreaking() {
   breaking.active = false;
@@ -950,6 +1070,14 @@ function updateBreaking(dt) {
     else crackMesh.visible = false;
     return;
   }
+
+  /* Креатив: если уже сломали блок в этом нажатии — ждём отпускания кнопки */
+  if (gameMode === 'creative' && creativeBrokeThisClick) {
+    if (breaking.active) stopBreaking();
+    else crackMesh.visible = false;
+    return;
+  }
+
   const t = currentTarget;
   if (t.y <= 0) { stopBreaking(); return; }
 
@@ -965,8 +1093,13 @@ function updateBreaking(dt) {
   }
 
   const id = world[IDX(t.x, t.y, t.z)];
-  const hardness = HARDNESS[id] || 1.0;
-  breaking.progress += dt / hardness;
+
+  if (gameMode === 'creative') {
+    breaking.progress = 1;
+  } else {
+    const hardness = HARDNESS[id] || 1.0;
+    breaking.progress += dt / hardness;
+  }
 
   const stage = Math.min(10, Math.floor(breaking.progress * 10) + 1);
   if (stage !== breaking.stage) {
@@ -982,6 +1115,12 @@ function updateBreaking(dt) {
     rebuildAround(t.x, t.z);
     markDirty();
     SFX.break(id);
+
+    if (gameMode === 'creative') {
+      /* Помечаем, что в этом нажатии блок уже сломан.
+         Дальше ждём отпускания ЛКМ, чтобы не сломать следующий. */
+      creativeBrokeThisClick = true;
+    }
     stopBreaking();
   }
 }
@@ -1106,6 +1245,7 @@ function saveGame() {
       px: player.pos.x, py: player.pos.y, pz: player.pos.z,
       yaw: yaw, pitch: pitch, fly: player.fly,
       hp: hp,
+      mode: gameMode,
       mobs: MOBS.serialize()
     }));
     dirty = false;
@@ -1131,9 +1271,15 @@ function loadGame() {
     player.pos.set(d.px, d.py, d.pz);
     player.vel.set(0, 0, 0);
     yaw = d.yaw || 0; pitch = d.pitch || 0;
-    player.fly = !!d.fly;
+    if (d.mode === 'creative' || d.mode === 'survival') {
+      gameMode = d.mode;
+      settings.gameMode = d.mode;
+      saveSettings(settings);
+    }
+    player.fly = !!d.fly && gameMode === 'creative';
     if (typeof d.hp === 'number' && d.hp > 0) hp = Math.min(MAX_HP, d.hp);
     else hp = MAX_HP;
+    if (gameMode === 'creative') hp = MAX_HP;
     refreshHearts();
     if (d.mobs && d.mobs.length) MOBS.deserialize(d.mobs);
     return true;
@@ -1194,6 +1340,13 @@ function buildChunksAsync(onProgress, onDone) {
   showLoading(true);
   setLoadingText('Загрузка сохранения…');
 
+  setGameMode(gameMode, true);
+  if (gameMode === 'creative') {
+    player.fly = true;
+    wasOnGround = false;
+    highestAirY = player.pos.y;
+  }
+
   requestAnimationFrame(function () {
     requestAnimationFrame(function () {
       try {
@@ -1204,6 +1357,11 @@ function buildChunksAsync(onProgress, onDone) {
         }
         if (!loaded) respawn();
         if (player.pos.y < 0 || player.pos.y > SY) respawn();
+
+        /* Синхронизация флага полёта и видимости HP после загрузки */
+        if (gameMode !== 'creative') player.fly = false;
+        updateMobileFlyBtn();
+        updateHealthVisibility();
 
         if (loaded) {
           const cx = Math.floor(player.pos.x), cz = Math.floor(player.pos.z);
@@ -1230,6 +1388,7 @@ function buildChunksAsync(onProgress, onDone) {
             showLoading(false);
             console.log('[game.js] init OK. Игрок:', player.pos.toArray(),
                         '| мобов:', MOBS.count(), '| hp:', hp,
+                        '| режим:', gameMode,
                         '| renderDist:', settings.renderDist,
                         '| fpsLimit:', fpsLimit || '∞',
                         '| mobile:', isMobile, '| version:', GAME_VERSION);
@@ -1379,7 +1538,7 @@ function update(dt) {
       if (player.onGround && player.vel.y < 0) player.vel.y = 0;
     }
 
-    if (!player.fly) {
+    if (!player.fly && gameMode !== 'creative') {
       if (!player.onGround) {
         if (wasOnGround) highestAirY = player.pos.y;
         if (player.pos.y > highestAirY) highestAirY = player.pos.y;
@@ -1420,7 +1579,7 @@ function update(dt) {
       stepAcc = 0;
     }
 
-    if (hp > 0 && hp < MAX_HP) {
+    if (gameMode !== 'creative' && hp > 0 && hp < MAX_HP) {
       const sinceDmg = performance.now() - lastDamageTime;
       if (sinceDmg > REGEN_DELAY_MS) {
         regenAcc += dt;
@@ -1431,7 +1590,7 @@ function update(dt) {
       }
     }
 
-    if (player.pos.y < -30) damagePlayer(MAX_HP);
+    if (gameMode !== 'creative' && player.pos.y < -30) damagePlayer(MAX_HP);
 
     const newFov = camera.fov + (fovTarget - camera.fov) * Math.min(1, 8 * dt);
     if (Math.abs(newFov - camera.fov) > 0.01) {
@@ -1504,7 +1663,9 @@ function loop(now) {
   infoEl.textContent =
     'XYZ: ' + player.pos.x.toFixed(1) + ' / ' + player.pos.y.toFixed(1) + ' / ' + player.pos.z.toFixed(1) + '\n' +
     'FPS: ' + fpsVal + (fpsLimit > 0 ? '/' + fpsLimit : '') +
-    '  ·  R: ' + settings.renderDist + '  ·  ' + GAME_VERSION;
+    '  ·  R: ' + settings.renderDist +
+    '  ·  ' + (gameMode === 'creative' ? 'Креатив' : 'Выживание') +
+    '  ·  ' + GAME_VERSION;
 
   try {
     renderer.render(scene, camera);
@@ -1513,6 +1674,7 @@ function loop(now) {
 
 requestAnimationFrame(loop);
 
-console.log('[game.js] скрипт загружен. mobile:', isMobile, '| version:', GAME_VERSION);
+console.log('[game.js] скрипт загружен. mobile:', isMobile,
+            '| режим:', gameMode, '| version:', GAME_VERSION);
 
 })();
