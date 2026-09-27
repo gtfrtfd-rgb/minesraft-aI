@@ -10,6 +10,7 @@
    + FIX: полёт доступен ТОЛЬКО в креативе (F, кнопка ✈)
    + FIX: в креативе ломается только один блок за нажатие
    + FIX: HP скрыто в креативе
+   + Солнце (updateSun)
    ============================================================ */
 (function () {
 'use strict';
@@ -63,6 +64,7 @@ const crackTextures = R.crackTextures;
 const crackMat  = R.crackMat;
 const crackMesh = R.crackMesh;
 const updateClouds = R.updateClouds;
+const updateSun = R.updateSun;
 
 const GAME_VERSION = '2.5-V3.TEST';
 
@@ -298,7 +300,6 @@ function setGameMode(mode, silent) {
     modeBtn.style.boxShadow = '0 2px 0 #2f5a17';
   }
 
-  /* Сброс флага «уже сломали в этом нажатии» */
   creativeBrokeThisClick = false;
 
   updateMobileFlyBtn();
@@ -1071,7 +1072,6 @@ function updateBreaking(dt) {
     return;
   }
 
-  /* Креатив: если уже сломали блок в этом нажатии — ждём отпускания кнопки */
   if (gameMode === 'creative' && creativeBrokeThisClick) {
     if (breaking.active) stopBreaking();
     else crackMesh.visible = false;
@@ -1117,8 +1117,6 @@ function updateBreaking(dt) {
     SFX.break(id);
 
     if (gameMode === 'creative') {
-      /* Помечаем, что в этом нажатии блок уже сломан.
-         Дальше ждём отпускания ЛКМ, чтобы не сломать следующий. */
       creativeBrokeThisClick = true;
     }
     stopBreaking();
@@ -1358,7 +1356,6 @@ function buildChunksAsync(onProgress, onDone) {
         if (!loaded) respawn();
         if (player.pos.y < 0 || player.pos.y > SY) respawn();
 
-        /* Синхронизация флага полёта и видимости HP после загрузки */
         if (gameMode !== 'creative') player.fly = false;
         updateMobileFlyBtn();
         updateHealthVisibility();
@@ -1435,6 +1432,7 @@ function maybeUpdateChunkVisibility() {
 function update(dt) {
   if (attackTimer > 0) attackTimer -= dt;
   updateClouds(dt, player.pos);
+  updateSun(dt, player.pos);
 
   if (!dead) {
     const sinYaw = Math.sin(yaw);

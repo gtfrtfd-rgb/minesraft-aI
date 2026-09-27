@@ -2,7 +2,8 @@
    render.js — движок: сцена, рендерер, камера, облака,
    барьеры по краям мира, текстуры трещин, восстановление
    WebGL-контекста.
-   + Ленивая генерация текстур трещин (только при первом использовании)
+   + Ленивая генерация текстур трещин
+   + СОЛНЦЕ: компактный квад с мягким свечением, перекрывается блоками
    ============================================================ */
 window.RENDER = (function () {
 'use strict';
@@ -36,7 +37,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.2 : 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 450);
+const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 900);
 camera.rotation.order = 'YXZ';
 
 window.addEventListener('resize', () => {
@@ -46,7 +47,162 @@ window.addEventListener('resize', () => {
 });
 
 /* ============================================================
-   2. ОБЛАКА
+   2. СОЛНЦЕ
+   ------------------------------------------------------------
+   Компактный квад из двух слоёв:
+     • внешний — мягкий ореол (radial gradient, alpha)
+     • внутренний — плотное жёлто-белое ядро (пиксельный квадрат)
+   Солнце «следует» за игроком, но перекрывается блоками
+   (depthTest: true). Сквозь облака видно, т.к. у них depthWrite=false.
+   ============================================================ */
+const sun = (function makeSun() {
+  const group = new THREE.Group();
+  group.renderOrder = -2;
+
+  /* --- Текстура ядра солнца (16×16, пиксельная, как в MC) --- */
+  function makeCoreTex() {
+    const S = 16;
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const ctx = c.getContext('2d');
+    const img = ctx.createImageData(S, S);
+    const d = img.data;
+
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const edgeX = (x === 0 || x === S - 1);
+        const edgeY = (y === 0 || y === S - 1);
+        const cornerCut = (x === 0 || x === S - 1) && (y === 0 || y === S - 1);
+
+        let a = 255;
+        if (cornerCut) a = 0;
+        else if (edgeX || edgeY) a = 200;
+
+        const dx = x - 7.5, dy = y - 7.5;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const t = Math.min(1, dist / 8);
+        const r = 255;
+        const g = Math.round(255 - t * 30);
+        const b = Math.round(255 - t * 130);
+
+        const o = (y * S + x) * 4;
+        d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = a;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    const tex = new THREE.CanvasTexture(c);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+  }
+
+  /* --- Текстура мягкого ореола (64×64, плавный радиальный градиент) --- */
+  function makeGlowTex() {
+    const S = 64;
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const ctx = c.getContext('2d');
+    const img = ctx.createImageData(S, S);
+    const d = img.data;
+    const cx = 31.5, cy = 31.5;
+
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const dx = x - cx, dy = y - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        let a;
+        if (dist < 12) a = 220;
+        else if (dist > 30) a = 0;
+        else a = Math.round(220 * (1 - (dist - 12) / 18));
+        const o = (y * S + x) * 4;
+        d[o] = 255;
+        d[o + 1] = 245;
+        d[o + 2] = 200;
+        d[o + 3] = a;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    const tex = new THREE.CanvasTexture(c);
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.generateMipmaps = false;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+  }
+
+  /* depthTest: true — солнце перекрывается блоками.
+     depthWrite: false — само солнце не пишет в буфер глубины
+     (чтобы облака за ним оставались видны). */
+  const coreMat = new THREE.MeshBasicMaterial({
+    map: makeCoreTex(),
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    fog: false,
+    side: THREE.DoubleSide
+  });
+
+  const glowMat = new THREE.MeshBasicMaterial({
+    map: makeGlowTex(),
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    fog: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending
+  });
+
+  const CORE_SIZE = 30;
+  const GLOW_SIZE = CORE_SIZE * 2.2;
+
+  const coreMesh = new THREE.Mesh(new THREE.PlaneGeometry(CORE_SIZE, CORE_SIZE), coreMat);
+  coreMesh.renderOrder = -2;
+  coreMesh.frustumCulled = false;
+
+  const glowMesh = new THREE.Mesh(new THREE.PlaneGeometry(GLOW_SIZE, GLOW_SIZE), glowMat);
+  glowMesh.renderOrder = -3;
+  glowMesh.frustumCulled = false;
+
+  group.add(glowMesh);
+  group.add(coreMesh);
+
+  scene.add(group);
+
+  return {
+    group: group,
+    coreMesh: coreMesh,
+    glowMesh: glowMesh,
+    coreMat: coreMat,
+    glowMat: glowMat,
+    distance: 260,
+    yaw: Math.PI * 0.25,
+    pitch: Math.PI * 0.28
+  };
+})();
+
+/* Солнце «следует» за игроком, но при этом перекрывается блоками. */
+function updateSun(dt, pPos) {
+  const d = sun.distance;
+
+  /* Медленное движение по небу (~8 минут на полный круг) */
+  sun.yaw += dt * 0.012;
+  if (sun.yaw > Math.PI * 2) sun.yaw -= Math.PI * 2;
+
+  const cx = pPos.x + Math.cos(sun.yaw) * d;
+  const cz = pPos.z + Math.sin(sun.yaw) * d;
+  const cy = pPos.y + d * Math.sin(sun.pitch);
+
+  sun.group.position.set(cx, cy, cz);
+
+  /* Billboarding — квады всегда лицом к камере */
+  sun.coreMesh.lookAt(camera.position);
+  sun.glowMesh.lookAt(camera.position);
+}
+
+/* ============================================================
+   3. ОБЛАКА
    ============================================================ */
 const clouds = (function makeClouds() {
   const group = new THREE.Group();
@@ -170,7 +326,7 @@ function updateClouds(dt, pPos) {
 }
 
 /* ============================================================
-   3. БАРЬЕРЫ ПО КРАЯМ МИРА
+   4. БАРЬЕРЫ ПО КРАЯМ МИРА
    ============================================================ */
 (function makeBorderWalls() {
   const H = 40;
@@ -187,7 +343,7 @@ function updateClouds(dt, pPos) {
 })();
 
 /* ============================================================
-   4. ТРЕЩИНЫ (10 стадий) — ЛЕНИВАЯ ГЕНЕРАЦИЯ
+   5. ТРЕЩИНЫ (10 стадий) — ЛЕНИВАЯ ГЕНЕРАЦИЯ
    ============================================================ */
 const CRACK_STAGES = 10;
 
@@ -248,16 +404,9 @@ function makeCrackTexture(stage) {
   return tex;
 }
 
-/* Ленивая генерация: crackTextures[i] заполняется только при обращении */
 const crackTextures = new Array(CRACK_STAGES);
-function ensureCrackTex(i) {
-  if (!crackTextures[i]) crackTextures[i] = makeCrackTexture(i + 1);
-  return crackTextures[i];
-}
-/* Первая — сразу, она нужна при старте ломания */
 crackTextures[0] = makeCrackTexture(1);
 
-/* Прокси-обёртка: crackTextures[n] автоматически генерирует при обращении */
 const crackTexturesProxy = new Proxy(crackTextures, {
   get: function (target, prop) {
     if (typeof prop === 'string') {
@@ -280,7 +429,7 @@ crackMesh.renderOrder = 2;
 scene.add(crackMesh);
 
 /* ============================================================
-   5. ВОССТАНОВЛЕНИЕ WebGL-КОНТЕКСТА
+   6. ВОССТАНОВЛЕНИЕ WebGL-КОНТЕКСТА
    ============================================================ */
 function recoverGL() {
   try {
@@ -293,6 +442,11 @@ function recoverGL() {
       if (m.map) m.map.needsUpdate = true;
       m.needsUpdate = true;
     }
+    if (sun.coreMat.map) sun.coreMat.map.needsUpdate = true;
+    if (sun.glowMat.map) sun.glowMat.map.needsUpdate = true;
+    sun.coreMat.needsUpdate = true;
+    sun.glowMat.needsUpdate = true;
+
     if (MC.rebuildAll) MC.rebuildAll();
     if (window.MOBS && window.MOBS.rebuildTextures) window.MOBS.rebuildTextures();
     if (renderer.resetState) renderer.resetState();
@@ -333,7 +487,8 @@ return {
   crackTextures: crackTexturesProxy,
   crackMat: crackMat,
   crackMesh: crackMesh,
-  updateClouds: updateClouds
+  updateClouds: updateClouds,
+  updateSun: updateSun
 };
 
 })();
