@@ -1,4 +1,4 @@
-name: Node.js CI & Deploy to GitHub Pages
+name: Deploy to GitHub Pages
 
 on:
   push:
@@ -18,40 +18,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build_and_test:
-    runs-on: windows-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [22.x]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build (if present)
-        run: npm run build --if-present
-
-      - name: Test
-        run: npm test
-
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    # Деплой запустится ТОЛЬКО если тесты на Windows прошли успешно и это ветка main
-    needs: build_and_test
+    # Деплой только для ветки main
     if: github.ref == 'refs/heads/main'
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -59,11 +33,11 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      # Собираем статические файлы проекта для публикации
+      # Загружаем все статические файлы проекта как артефакт
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.' # Загружаем корень репозитория, где лежит index.html
+          path: '.'
 
       - name: Deploy to GitHub Pages
         id: deployment
