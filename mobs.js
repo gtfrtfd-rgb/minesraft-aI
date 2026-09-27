@@ -1,5 +1,7 @@
 /* ============================================================
    mobs.js — мирные мобы с текстурами, звуками, HP и AI.
+   + Текстуры в стиле Minecraft (пятна, шерсть, правильная палитра)
+   + Живые глаза: блик, радужка, зрачок
    + isBlockOccupied(x,y,z) — не даёт поставить блок внутрь моба
    + unstickMob — если моб оказался в блоке, выталкивает наверх
    + Скрытие мобов за пределами радиуса прорисовки
@@ -68,110 +70,502 @@ function finalizeTex(canvas) {
   return tex;
 }
 
-function makeTex(px, base, variation, blobs, seed) {
+/* ------------------------------------------------------------
+   Базовый «пиксельный» рисунок: фон + случайные пятна цветов
+   из заданной палитры. Пятна задаются крупными блоками 1–3 px
+   — это даёт характерный «блочный» вид как в Minecraft.
+   ------------------------------------------------------------ */
+function makeTex(px, palette, options) {
+  options = options || {};
+  const density   = options.density   != null ? options.density   : 0.35;
+  const patchChance = options.patchChance != null ? options.patchChance : 0;
+  const patchColors = options.patchColors || null;
+  const patchScale  = options.patchScale  || 3;
+  const seed        = options.seed        || 1;
+
   const c = newTexCanvas(px);
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(px, px);
   const d = img.data;
+
   for (let y = 0; y < px; y++) {
     for (let x = 0; x < px; x++) {
-      let r = base[0], g = base[1], b = base[2];
+      const bx = (x / 2) | 0;
+      const by = (y / 2) | 0;
+      const n = hash01(bx, by, seed);
+      let idx = 0;
+      if (n < density * 0.4)      idx = 0;
+      else if (n < density * 0.75) idx = 1;
+      else if (n < density)        idx = 2;
+      else                          idx = (n > 0.5 ? 2 : 3);
 
-      const n = hash01(x, y, seed);
-      const dv = (n - 0.5) * variation;
-      r += dv; g += dv; b += dv;
+      const fine = hash01(x, y, seed + 31);
+      if (fine < 0.15 && idx > 0) idx--;
+      else if (fine > 0.9 && idx < palette.length - 1) idx++;
 
-      if (blobs && blobs.length) {
-        for (let i = 0; i < blobs.length; i++) {
-          const bl = blobs[i];
-          const scale = bl.scale || 4;
-          const bx = Math.floor(x / scale), by = Math.floor(y / scale);
-          const nb = hash01(bx, by, seed + i * 17);
-          if (nb < bl.chance) {
-            r = bl.color[0]; g = bl.color[1]; b = bl.color[2];
-          }
+      let col = palette[Math.min(idx, palette.length - 1)];
+
+      if (patchColors && patchChance > 0) {
+        const pbx = (x / patchScale) | 0;
+        const pby = (y / patchScale) | 0;
+        const pn = hash01(pbx, pby, seed + 91);
+        if (pn < patchChance) {
+          col = patchColors[Math.min(idx, patchColors.length - 1)];
         }
       }
 
       const o = (y * px + x) * 4;
-      d[o] = cl(r); d[o + 1] = cl(g); d[o + 2] = cl(b); d[o + 3] = 255;
+      d[o]     = col[0];
+      d[o + 1] = col[1];
+      d[o + 2] = col[2];
+      d[o + 3] = 255;
     }
   }
   ctx.putImageData(img, 0, 0);
   return finalizeTex(c);
 }
 
+/* ------------------------------------------------------------
+   Свиной пятачок: розовая основа + 2 тёмных ноздри.
+   ------------------------------------------------------------ */
 function makePigSnoutTex() {
   const px = 16;
   const c = newTexCanvas(px);
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(px, px);
   const d = img.data;
+
+  const light = [242, 165, 160];
+  const dark  = [214, 138, 134];
+  const nos   = [90, 40, 50];
+
   for (let y = 0; y < px; y++) {
     for (let x = 0; x < px; x++) {
-      let r = 204, g = 106, b = 122;
-      const n = (hash01(x, y, 41) - 0.5) * 20;
-      r += n; g += n; b += n;
-      const cy = Math.abs(y - 8);
-      if (cy <= 2 && (Math.abs(x - 5) <= 1 || Math.abs(x - 10) <= 1)) {
-        r = 55; g = 22; b = 32;
-      }
+      const n = hash01((x / 2) | 0, (y / 2) | 0, 41);
+      let col = n < 0.5 ? light : dark;
+
+      const ny = y >= 6 && y <= 9;
+      const nx1 = (x >= 4 && x <= 5);
+      const nx2 = (x >= 10 && x <= 11);
+      if (ny && (nx1 || nx2)) col = nos;
+
       const o = (y * px + x) * 4;
-      d[o] = cl(r); d[o + 1] = cl(g); d[o + 2] = cl(b); d[o + 3] = 255;
+      d[o] = col[0]; d[o+1] = col[1]; d[o+2] = col[2]; d[o+3] = 255;
     }
   }
   ctx.putImageData(img, 0, 0);
   return finalizeTex(c);
 }
 
+/* ------------------------------------------------------------
+   Морда коровы: коричневая база + белая вертикальная полоса
+   по центру + тёмный контур. Как в Minecraft.
+   ------------------------------------------------------------ */
 function makeCowFaceTex() {
   const px = 16;
   const c = newTexCanvas(px);
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(px, px);
   const d = img.data;
+
+  const brown    = [62, 39, 22];
+  const brownLt  = [88, 58, 36];
+  const brownDk  = [42, 25, 12];
+  const muzzle   = [242, 235, 225];
+  const muzzleDk = [200, 190, 180];
+
   for (let y = 0; y < px; y++) {
     for (let x = 0; x < px; x++) {
-      let r = 102, g = 68, b = 34;
-      const n = (hash01(x, y, 91) - 0.5) * 22;
-      r += n; g += n; b += n;
-      if (Math.abs(x - 8) <= 1 && y > 2) {
-        r = 235; g = 232; b = 226;
+      const n = hash01((x / 2) | 0, (y / 2) | 0, 91);
+      let col = n < 0.4 ? brown : (n < 0.8 ? brownLt : brownDk);
+
+      const center = Math.abs(x - 7) <= 1 || Math.abs(x - 8) <= 1;
+      if (center && y >= 3) {
+        col = (n < 0.5) ? muzzle : muzzleDk;
       }
+
+      if (y <= 2 && (x < 4 || x > 11)) {
+        col = brownDk;
+      }
+
       const o = (y * px + x) * 4;
-      d[o] = cl(r); d[o + 1] = cl(g); d[o + 2] = cl(b); d[o + 3] = 255;
+      d[o] = col[0]; d[o+1] = col[1]; d[o+2] = col[2]; d[o+3] = 255;
     }
   }
   ctx.putImageData(img, 0, 0);
   return finalizeTex(c);
 }
 
+/* ------------------------------------------------------------
+   Текстура шерсти овцы: 3 оттенка серого-белого блоками
+   по 2×2 с «кудрявым» рисунком.
+   ------------------------------------------------------------ */
+function makeSheepWoolTex() {
+  const px = 16;
+  const c = newTexCanvas(px);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(px, px);
+  const d = img.data;
+
+  const shade = [
+    [235, 235, 235],
+    [220, 220, 220],
+    [205, 205, 205],
+    [190, 190, 190]
+  ];
+
+  for (let y = 0; y < px; y++) {
+    for (let x = 0; x < px; x++) {
+      const bx = (x / 2) | 0;
+      const by = (y / 2) | 0;
+      const n = hash01(bx, by, 5);
+      const checker = ((bx + by) & 1) === 0 ? 0.15 : 0;
+      let idx;
+      if (n + checker < 0.30)      idx = 0;
+      else if (n + checker < 0.55) idx = 1;
+      else if (n + checker < 0.80) idx = 2;
+      else                          idx = 3;
+
+      const o = (y * px + x) * 4;
+      d[o] = shade[idx][0]; d[o+1] = shade[idx][1]; d[o+2] = shade[idx][2];
+      d[o+3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return finalizeTex(c);
+}
+
+/* ------------------------------------------------------------
+   Текстура шкуры коровы: коричневая база + крупные белые
+   пятна неправильной формы.
+   ------------------------------------------------------------ */
+function makeCowHideTex() {
+  const px = 16;
+  const c = newTexCanvas(px);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(px, px);
+  const d = img.data;
+
+  const brown   = [62, 39, 22];
+  const brownLt = [88, 58, 36];
+  const brownDk = [42, 25, 12];
+  const white   = [242, 240, 236];
+  const whiteDk = [216, 214, 210];
+
+  for (let y = 0; y < px; y++) {
+    for (let x = 0; x < px; x++) {
+      const n = hash01((x / 2) | 0, (y / 2) | 0, 8);
+      let col = n < 0.4 ? brown : (n < 0.8 ? brownLt : brownDk);
+
+      const pbx = (x / 3) | 0;
+      const pby = (y / 3) | 0;
+      const pn = hash01(pbx, pby, 8 + 200);
+      const inBlob1 = (x >= 1 && x <= 7 && y >= 2 && y <= 8) && pn < 0.55;
+      const inBlob2 = (x >= 8 && x <= 14 && y >= 9 && y <= 14) && pn > 0.35;
+      if (inBlob1 || inBlob2) {
+        col = (n > 0.5) ? white : whiteDk;
+      }
+
+      const o = (y * px + x) * 4;
+      d[o] = col[0]; d[o+1] = col[1]; d[o+2] = col[2]; d[o+3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return finalizeTex(c);
+}
+
+/* ------------------------------------------------------------
+   Текстура курицы: белая с лёгким серым оттенком, выделенные
+   перьевые «полосы» по горизонтали.
+   ------------------------------------------------------------ */
+function makeChickenBodyTex() {
+  const px = 16;
+  const c = newTexCanvas(px);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(px, px);
+  const d = img.data;
+
+  const white   = [250, 250, 250];
+  const whiteMd = [232, 232, 228];
+  const whiteDk = [210, 210, 205];
+  const whiteSh = [188, 188, 184];
+
+  for (let y = 0; y < px; y++) {
+    for (let x = 0; x < px; x++) {
+      const n = hash01((x / 2) | 0, (y / 2) | 0, 12);
+      let col;
+      if (n < 0.4) col = white;
+      else if (n < 0.7) col = whiteMd;
+      else if (n < 0.9) col = whiteDk;
+      else col = whiteSh;
+
+      if (y % 5 === 2 && (x + ((y / 5) | 0) * 3) % 4 === 0) {
+        col = whiteDk;
+      }
+
+      const o = (y * px + x) * 4;
+      d[o] = col[0]; d[o+1] = col[1]; d[o+2] = col[2]; d[o+3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return finalizeTex(c);
+}
+
+/* ------------------------------------------------------------
+   Куриная голова: как тело, но с красным гребешком сверху.
+   ------------------------------------------------------------ */
+function makeChickenHeadTex() {
+  const px = 16;
+  const c = newTexCanvas(px);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(px, px);
+  const d = img.data;
+
+  const white   = [250, 250, 250];
+  const whiteMd = [232, 232, 228];
+  const whiteDk = [210, 210, 205];
+  const comb    = [204, 34, 34];
+  const combDk  = [160, 20, 20];
+
+  for (let y = 0; y < px; y++) {
+    for (let x = 0; x < px; x++) {
+      const n = hash01((x / 2) | 0, (y / 2) | 0, 12);
+      let col;
+      if (n < 0.5) col = white;
+      else if (n < 0.85) col = whiteMd;
+      else col = whiteDk;
+
+      if (y <= 2 && x >= 3 && x <= 12) {
+        col = (n > 0.5) ? comb : combDk;
+      }
+
+      const o = (y * px + x) * 4;
+      d[o] = col[0]; d[o+1] = col[1]; d[o+2] = col[2]; d[o+3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return finalizeTex(c);
+}
+
+/* ------------------------------------------------------------
+   ЖИВОЙ ГЛАЗ — улучшенный.
+   Структура:
+     • внешний тёмный контур (край века)
+     • радужка — чуть светлее фона, тёплый оттенок
+     • зрачок — почти чёрный
+     • большой блик сверху-слева (catchlight) — «искра жизни»
+     • маленький вторичный блик снизу-справа (отражение)
+   ------------------------------------------------------------ */
+function makeEyeTex() {
+  const px = 16;
+  const c = newTexCanvas(px);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(px, px);
+  const d = img.data;
+
+  const cx = 7.5, cy = 7.5;
+
+  for (let y = 0; y < px; y++) {
+    for (let x = 0; x < px; x++) {
+      let r, g, b;
+      const dx = x - cx, dy = y - cy;
+      const dist2 = dx * dx + dy * dy;
+
+      // Внешний тёмный контур (край века)
+      if (dist2 > 42) {
+        r = 8; g = 6; b = 10;
+      }
+      // Радужка
+      else if (dist2 > 14) {
+        r = 34; g = 28; b = 32;
+      }
+      // Зрачок
+      else {
+        r = 10; g = 6; b = 8;
+      }
+
+      // Большой блик — верхний-левый
+      const hx = x - 4.7, hy = y - 4.7;
+      const hd2 = hx * hx + hy * hy;
+      if (hd2 < 2.4) {
+        r = 255; g = 255; b = 255;
+      } else if (hd2 < 5.5) {
+        const t = (5.5 - hd2) / 3.1;
+        r = Math.min(255, r + 190 * t);
+        g = Math.min(255, g + 195 * t);
+        b = Math.min(255, b + 200 * t);
+      }
+
+      // Вторичный блик — нижний-правый
+      const h2x = x - 10, h2y = y - 10.5;
+      const h2d2 = h2x * h2x + h2y * h2y;
+      if (h2d2 < 1.4) {
+        r = 195; g = 200; b = 215;
+      } else if (h2d2 < 3) {
+        r = Math.min(255, r + 70);
+        g = Math.min(255, g + 70);
+        b = Math.min(255, b + 80);
+      }
+
+      const o = (y * px + x) * 4;
+      d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return finalizeTex(c);
+}
+
+/* ------------------------------------------------------------
+   Глаз коровы: белая склера + крупный чёрный зрачок + блик.
+   Смотрится характерно и узнаваемо, как у настоящей коровы.
+   ------------------------------------------------------------ */
+function makeCowEyeTex() {
+  const px = 16;
+  const c = newTexCanvas(px);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(px, px);
+  const d = img.data;
+
+  const cx = 7.5, cy = 7.5;
+
+  for (let y = 0; y < px; y++) {
+    for (let x = 0; x < px; x++) {
+      let r, g, b;
+      const dx = x - cx, dy = y - cy;
+      const dist2 = dx * dx + dy * dy;
+
+      // Светлая склера по краям
+      if (dist2 > 30) {
+        r = 245; g = 242; b = 234;
+      }
+      // Переходная зона
+      else if (dist2 > 12) {
+        r = 200; g = 196; b = 188;
+      }
+      // Крупный тёмный зрачок
+      else {
+        r = 14; g = 10; b = 12;
+      }
+
+      // Блик — верхний-левый
+      const hx = x - 5, hy = y - 5;
+      const hd2 = hx * hx + hy * hy;
+      if (hd2 < 2) {
+        r = 255; g = 255; b = 255;
+      } else if (hd2 < 4.5) {
+        const t = (4.5 - hd2) / 2.5;
+        r = Math.min(255, r + 180 * t);
+        g = Math.min(255, g + 180 * t);
+        b = Math.min(255, b + 185 * t);
+      }
+
+      const o = (y * px + x) * 4;
+      d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return finalizeTex(c);
+}
+
+/* ------------------------------------------------------------
+   Текстуры ног / крыльев / рогов — простые однотонные.
+   ------------------------------------------------------------ */
+function makeSolidTex(px, palette, seed) {
+  const c = newTexCanvas(px);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(px, px);
+  const d = img.data;
+  for (let y = 0; y < px; y++) {
+    for (let x = 0; x < px; x++) {
+      const n = hash01((x / 2) | 0, (y / 2) | 0, seed);
+      const idx = n < 0.5 ? 0 : (n < 0.85 ? 1 : 2);
+      const col = palette[Math.min(idx, palette.length - 1)];
+      const o = (y * px + x) * 4;
+      d[o] = col[0]; d[o+1] = col[1]; d[o+2] = col[2]; d[o+3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return finalizeTex(c);
+}
+
+/* ------------------------------------------------------------
+   Палитры цветов (Minecraft-подобные).
+   ------------------------------------------------------------ */
+const PIG_BASE = [
+  [242, 165, 160],
+  [228, 148, 144],
+  [214, 130, 128],
+  [196, 114, 112]
+];
+const PIG_LEG = [
+  [214, 130, 128],
+  [198, 116, 114],
+  [180, 100, 100]
+];
+const SHEEP_FACE = [
+  [88, 78, 70],
+  [70, 62, 56],
+  [52, 46, 42]
+];
+const SHEEP_LEG = [
+  [72, 66, 60],
+  [58, 52, 48],
+  [44, 40, 36]
+];
+const COW_HORN = [
+  [238, 234, 214],
+  [216, 208, 186],
+  [188, 178, 156]
+];
+const COW_LEG = [
+  [62, 39, 22],
+  [50, 30, 16],
+  [38, 22, 10]
+];
+const CHICKEN_BEAK = [
+  [242, 168, 40],
+  [222, 148, 28],
+  [198, 126, 18]
+];
+const CHICKEN_LEG = [
+  [232, 158, 30],
+  [208, 136, 20],
+  [180, 114, 12]
+];
+const WATTLE_RED = [
+  [220, 40, 40],
+  [190, 26, 26],
+  [160, 18, 18]
+];
+
 const MOB_TEXTURES = {
-  pigBody:  makeTex(16, [238, 156, 156], 22, [{ chance: 0.10, color: [220, 132, 132], scale: 3 }], 1),
-  pigHead:  makeTex(16, [238, 156, 156], 22, [{ chance: 0.06, color: [216, 122, 128], scale: 4 }], 2),
+  // Свинья — розовая с мраморными пятнами
+  pigBody:  makeTex(16, PIG_BASE, { density: 0.55, seed: 1 }),
+  pigHead:  makeTex(16, PIG_BASE, { density: 0.55, seed: 2 }),
   pigSnout: makePigSnoutTex(),
-  pigLeg:   makeTex(16, [204, 106, 122], 22, null, 4),
+  pigLeg:   makeSolidTex(16, PIG_LEG, 4),
 
-  sheepWool: makeTex(16, [235, 235, 235], 34, [
-    { chance: 0.18, color: [218, 218, 218], scale: 2 },
-    { chance: 0.06, color: [200, 200, 200], scale: 3 }
-  ], 5),
-  sheepFace: makeTex(16, [68, 68, 68], 20, null, 6),
-  sheepLeg:  makeTex(16, [51, 51, 51], 22, null, 7),
+  // Овца — «кудрявая» шерсть + тёмная морда
+  sheepWool: makeSheepWoolTex(),
+  sheepFace: makeSolidTex(16, SHEEP_FACE, 6),
+  sheepLeg:  makeSolidTex(16, SHEEP_LEG, 7),
 
-  cowHide: makeTex(16, [110, 70, 35], 24, [
-    { chance: 0.30, color: [240, 235, 225], scale: 3 }
-  ], 8),
+  // Корова — коричневая шкура с большими белыми пятнами
+  cowHide: makeCowHideTex(),
   cowFace: makeCowFaceTex(),
-  cowHorn: makeTex(16, [240, 240, 208], 14, null, 10),
-  cowLeg:  makeTex(16, [68, 34, 17], 22, null, 11),
+  cowHorn: makeSolidTex(16, COW_HORN, 10),
+  cowLeg:  makeSolidTex(16, COW_LEG, 11),
 
-  chickenBody: makeTex(16, [250, 250, 250], 26, [
-    { chance: 0.14, color: [236, 236, 232], scale: 2 },
-    { chance: 0.05, color: [222, 222, 218], scale: 3 }
-  ], 12),
-  chickenBeak: makeTex(16, [232, 160, 32], 14, null, 13),
-  chickenLeg:  makeTex(16, [200, 140, 40], 18, null, 14)
+  // Курица — белая с гребешком и перьями
+  chickenBody: makeChickenBodyTex(),
+  chickenHead: makeChickenHeadTex(),
+  chickenBeak: makeSolidTex(16, CHICKEN_BEAK, 13),
+  chickenLeg:  makeSolidTex(16, CHICKEN_LEG, 14),
+
+  // Глаза — живые, с бликом
+  eye:    makeEyeTex(),       // универсальный (свинья, овца, курица)
+  cowEye: makeCowEyeTex()     // отдельный для коровы
+
 };
 
 const SHADES = [0.92, 0.76, 1.00, 0.55, 0.86, 0.86];
@@ -211,8 +605,8 @@ const MOB_TYPES = {
       [0.25,  0.2,   0.1,   0xCC6677,  0,    0.66,  -0.85,  false, 'pigSnout'],
       [0.05,  0.05,  0.02,  0x551122, -0.06, 0.66,  -0.91,  false, null],
       [0.05,  0.05,  0.02,  0x551122,  0.06, 0.66,  -0.91,  false, null],
-      [0.08,  0.08,  0.02,  0x111111, -0.15, 0.875, -0.81,  false, null],
-      [0.08,  0.08,  0.02,  0x111111,  0.15, 0.875, -0.81,  false, null],
+      [0.1,   0.1,   0.02,  0x111111, -0.15, 0.875, -0.81,  false, 'eye'],
+      [0.1,   0.1,   0.02,  0x111111,  0.15, 0.875, -0.81,  false, 'eye'],
       [0.1,   0.1,   0.08,  0xCC6677, -0.15, 1.02,  -0.5,   false, null],
       [0.1,   0.1,   0.08,  0xCC6677,  0.15, 1.02,  -0.5,   false, null],
       [0.25,  0.375, 0.25,  0xCC6677, -0.19, 0.1875, -0.33, true,  'pigLeg'],
@@ -227,8 +621,8 @@ const MOB_TYPES = {
     parts: [
       [0.75,  0.75,  1.0,   0xEEEEEE,  0,    0.875,  0,     false, 'sheepWool'],
       [0.4,   0.5,   0.4,   0x444444,  0,    0.875, -0.7,   false, 'sheepFace'],
-      [0.06,  0.06,  0.02,  0xFFFFFF, -0.1,  0.95,  -0.91,  false, null],
-      [0.06,  0.06,  0.02,  0xFFFFFF,  0.1,  0.95,  -0.91,  false, null],
+      [0.09,  0.09,  0.02,  0xFFFFFF, -0.1,  0.95,  -0.91,  false, 'eye'],
+      [0.09,  0.09,  0.02,  0xFFFFFF,  0.1,  0.95,  -0.91,  false, 'eye'],
       [0.25,  0.5,   0.25,  0x333333, -0.2,  0.25,  -0.3,   true,  'sheepLeg'],
       [0.25,  0.5,   0.25,  0x333333,  0.2,  0.25,  -0.3,   true,  'sheepLeg'],
       [0.25,  0.5,   0.25,  0x333333, -0.2,  0.25,   0.3,   true,  'sheepLeg'],
@@ -243,8 +637,8 @@ const MOB_TYPES = {
       [0.5,   0.5,   0.5,   0x664422,  0,    1.0625, -0.7,   false, 'cowFace'],
       [0.1,   0.15,  0.1,   0xF0F0D0, -0.15, 1.38,   -0.7,   false, 'cowHorn'],
       [0.1,   0.15,  0.1,   0xF0F0D0,  0.15, 1.38,   -0.7,   false, 'cowHorn'],
-      [0.07,  0.07,  0.02,  0x000000, -0.15, 1.15,   -0.96,  false, null],
-      [0.07,  0.07,  0.02,  0x000000,  0.15, 1.15,   -0.96,  false, null],
+      [0.09,  0.09,  0.02,  0x000000, -0.15, 1.15,   -0.96,  false, 'cowEye'],
+      [0.09,  0.09,  0.02,  0x000000,  0.15, 1.15,   -0.96,  false, 'cowEye'],
       [0.25,  0.75,  0.25,  0x442211, -0.25, 0.375,  -0.4,   true,  'cowLeg'],
       [0.25,  0.75,  0.25,  0x442211,  0.25, 0.375,  -0.4,   true,  'cowLeg'],
       [0.25,  0.75,  0.25,  0x442211, -0.25, 0.375,   0.4,   true,  'cowLeg'],
@@ -256,11 +650,11 @@ const MOB_TYPES = {
     h: 0.7, r: 0.22, speed: 2.0, hp: 4,
     parts: [
       [0.3,   0.4,   0.4,   0xFFFFFF,  0,    0.45,   0,     false, 'chickenBody'],
-      [0.2,   0.3,   0.2,   0xFFFFFF,  0,    0.75,  -0.28,  false, 'chickenBody'],
+      [0.2,   0.3,   0.2,   0xFFFFFF,  0,    0.75,  -0.28,  false, 'chickenHead'],
       [0.15,  0.1,   0.15,  0xE8A020,  0,    0.7,   -0.45,  false, 'chickenBeak'],
-      [0.1,   0.08,  0.04,  0xCC2222,  0,    0.6,   -0.45,  false, null],
-      [0.05,  0.05,  0.02,  0x000000, -0.06, 0.8,   -0.39,  false, null],
-      [0.05,  0.05,  0.02,  0x000000,  0.06, 0.8,   -0.39,  false, null],
+      [0.1,   0.08,  0.04,  0xCC2222,  0,    0.6,   -0.45,  false, 'wattle'],
+      [0.07,  0.07,  0.02,  0x000000, -0.06, 0.8,   -0.39,  false, 'eye'],
+      [0.07,  0.07,  0.02,  0x000000,  0.06, 0.8,   -0.39,  false, 'eye'],
       [0.05,  0.25,  0.3,   0xEEEEEE, -0.175, 0.45,  0,     false, 'chickenBody'],
       [0.05,  0.25,  0.3,   0xEEEEEE,  0.175, 0.45,  0,     false, 'chickenBody'],
       [0.08,  0.25,  0.08,  0xE8A020, -0.08, 0.125,  0.05,  true,  'chickenLeg'],
@@ -478,7 +872,6 @@ function raycastMob(origin, dir, maxDist) {
   for (let i = 0; i < mobs.length; i++) {
     const m = mobs[i];
     if (m.dead) continue;
-    /* не даём целиться в мобов, скрытых за границей прорисовки */
     if (!m.group.visible) continue;
     const r = m.def.r, h = m.def.h;
     const minX = m.pos.x - r, maxX = m.pos.x + r;
@@ -574,8 +967,6 @@ function updateMobVisibility(mob) {
   const limit = renderDistBlocks + VISIBILITY_MARGIN;
   const visible = (dx * dx + dz * dz) <= limit * limit;
 
-  /* Если у моба сейчас hurtTimer мигает — не мешаем миганию:
-     при visible=true флаг мигания уже обрабатывается в updateMob. */
   if (mob.hurtTimer > 0) {
     if (visible) {
       // мигание под контролем updateMob, не перебиваем
@@ -709,7 +1100,6 @@ function updateMob(mob, dt) {
   mob.group.position.copy(mob.pos);
   mob.group.rotation.y = mob.yaw;
 
-  /* --- видимость: скрываем, если игрок далеко --- */
   updateMobVisibility(mob);
 
   if (mob.pos.y < -10) {

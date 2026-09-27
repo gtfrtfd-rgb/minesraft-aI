@@ -58,7 +58,7 @@ const crackMat  = R.crackMat;
 const crackMesh = R.crackMesh;
 const updateClouds = R.updateClouds;
 
-const GAME_VERSION = 'V2.1.5';
+const GAME_VERSION = '2.5-V3.TEST';
 
 const HARDNESS = {
   1: 0.55, 2: 0.45, 3: 1.30, 4: 1.10, 5: 0.45,
