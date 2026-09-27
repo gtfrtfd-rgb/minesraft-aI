@@ -1,10 +1,7 @@
 /* ============================================================
    sounds.js — процедурные звуки на Web Audio API (без файлов)
-   + Низкая задержка на мобильных:
-     - AudioContext создаётся сразу при загрузке (не лениво)
-     - latencyHint: 'interactive' (маленький буфер)
-     - разблокировка через пустой семпл (iOS Safari)
-     - звуки ставятся с запасом 3 мс, чтобы не теряться
+   + Низкая задержка на мобильных
+   + Пул кэшированных буферов шума (не создаём сэмплы каждый раз)
    ============================================================ */
 window.SFX = (function () {
 'use strict';
@@ -14,22 +11,12 @@ let masterGain = null;
 let masterVolume = 1;
 let unlocked = false;
 
-/* ------------------------------------------------------------
-   Создаём AudioContext сразу при загрузке скрипта, а не при
-   первом звуке. Это критично на мобильных: если контекст
-   создаётся лениво, первый звук идёт с задержкой в 50–100 мс,
-   а иногда и вообще пропадает.
-   ------------------------------------------------------------ */
 function createCtx() {
   try {
     const Ctor = window.AudioContext || window.webkitAudioContext;
     if (!Ctor) return null;
-    // iOS Safari (старые версии) не понимает опции — ловим исключение
-    try {
-      ctx = new Ctor({ latencyHint: 'interactive' });
-    } catch (e) {
-      ctx = new Ctor();
-    }
+    try { ctx = new Ctor({ latencyHint: 'interactive' }); }
+    catch (e) { ctx = new Ctor(); }
   } catch (e) {
     console.warn('[sounds.js] нет AudioContext', e);
     ctx = null;
@@ -43,25 +30,15 @@ function getCtx() {
   return ctx;
 }
 
-/* ------------------------------------------------------------
-   Разблокировка аудио. Вызывается из обработчика клика
-   (кнопка «ИГРАТЬ» / клик по канвасу). Помимо resume()
-   проигрываем пустой семпл — это обязательно для iOS Safari,
-   иначе первый звук всё равно идёт с задержкой.
-   ------------------------------------------------------------ */
 function resume() {
   const c = getCtx();
   if (!c) return;
-
-  // Резюмируем контекст; если он был suspended — это запустит аудио
   if (c.state === 'suspended') {
     const p = c.resume();
     if (p && p.then) p.then(function () { unlocked = true; });
   } else {
     unlocked = true;
   }
-
-  // Пустой буфер — «прогрев» аудио-тракта
   try {
     const b = c.createBuffer(1, 1, c.sampleRate);
     const s = c.createBufferSource();
@@ -87,19 +64,16 @@ function setVolume(v) {
 }
 function getVolume() { return masterVolume; }
 
-function noiseBuffer(seconds, decay) {
-  const c = getCtx(); if (!c) return null;
-  const len = Math.max(1, Math.floor(c.sampleRate * seconds));
-  const buf = c.createBuffer(1, len, c.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) {
-    const t = i / len;
-    d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, decay);
-  }
-  return buf;
-}
+/* ------------------------------------------------------------
+   Пул буферов шума. Раньше каждый вызов создавал 8000–40000
+   сэмплов Math.random() — это занимало 100–500 мкс на звук.
+   Теперь — предсозданный пул из 4 вариантов, ключ:
+   "тип:длительность:decay" (+ crackleRate для crackle).
+   ------------------------------------------------------------ */
+const NOISE_POOL = new Map();
+const POOL_SIZE = 4;
 
-function crackleBuffer(seconds, crackleRate, decay) {
+function makeNoiseBuffer(seconds, decay, crackle, crackleRate) {
   const c = getCtx(); if (!c) return null;
   const len = Math.max(1, Math.floor(c.sampleRate * seconds));
   const buf = c.createBuffer(1, len, c.sampleRate);
@@ -107,17 +81,33 @@ function crackleBuffer(seconds, crackleRate, decay) {
   for (let i = 0; i < len; i++) {
     const t = i / len;
     let v = (Math.random() * 2 - 1) * Math.pow(1 - t, decay);
-    if (Math.random() < crackleRate) v += (Math.random() * 2 - 1) * 1.4;
-    d[i] = Math.max(-1, Math.min(1, v));
+    if (crackle && Math.random() < crackleRate) {
+      v += (Math.random() * 2 - 1) * 1.4;
+      if (v > 1) v = 1; else if (v < -1) v = -1;
+    }
+    d[i] = v;
   }
   return buf;
 }
 
+function getCachedNoise(seconds, decay, crackle, crackleRate) {
+  const key = crackle
+    ? 'c:' + seconds + ':' + decay + ':' + crackleRate
+    : 'n:' + seconds + ':' + decay;
+
+  let pool = NOISE_POOL.get(key);
+  if (!pool) {
+    pool = new Array(POOL_SIZE);
+    for (let i = 0; i < POOL_SIZE; i++) {
+      pool[i] = makeNoiseBuffer(seconds, decay, crackle, crackleRate);
+    }
+    NOISE_POOL.set(key, pool);
+  }
+  return pool[(Math.random() * POOL_SIZE) | 0];
+}
+
 /* ------------------------------------------------------------
-   Небольшая «форточка» планирования: 3 мс. Не влияет на
-   воспринимаемую задержку, но спасает от того, что звук,
-   поставленный ровно на currentTime, может быть отброшен
-   аудио-движком на первом буфере после resume().
+   Планирование с 3 мс запасом (первый буфер после resume).
    ------------------------------------------------------------ */
 const SCHEDULE_LEAD = 0.003;
 
@@ -130,9 +120,7 @@ function playNoise(o) {
   const attack   = o.attack   != null ? o.attack   : 0.003;
   const when     = o.when     != null ? o.when     : 0;
 
-  const buf = o.crackle
-    ? crackleBuffer(duration, o.crackleRate || 0.08, decay)
-    : noiseBuffer(duration, decay);
+  const buf = getCachedNoise(duration, decay, !!o.crackle, o.crackleRate || 0.08);
   if (!buf) return;
 
   const src = c.createBufferSource();
@@ -500,9 +488,6 @@ function sndMobDeath(type) {
   }
 }
 
-/* Создаём контекст сразу — при загрузке скрипта. Он будет
-   в состоянии 'suspended', но уже инициализирован: samplerate,
-   число каналов и т. д. Это снимает задержку первого звука. */
 createCtx();
 
 return {

@@ -4,6 +4,8 @@
    + НАСТРОЙКА ПРОРИСОВКИ (render distance)
    + Мобы скрываются за пределами прорисовки
    + НАСТРОЙКА ЛИМИТА FPS (15 · 30 · 60 · 90 · 120 · 144 · 165 · 180 · 240 · ∞)
+   + DDA-рейкаст блоков (быстрее в ~20 раз)
+   + FIX: prev-клетка при установке блока через диагональный луч
    ============================================================ */
 (function () {
 'use strict';
@@ -70,10 +72,7 @@ const EYE_STAND   = 1.62;
 const EYE_CROUCH  = 1.28;
 let   eyeBlend    = 0;
 
-/* ------------------------------------------------------------
-   Лимит FPS: дискретные значения.
-   0 в массиве = без ограничений (используем платформенный rAF).
-   ------------------------------------------------------------ */
+/* Лимит FPS */
 const FPS_OPTIONS = [15, 30, 60, 90, 120, 144, 165, 180, 240, 0];
 const FPS_LABELS  = ['15', '30', '60', '90', '120', '144', '165', '180', '240', '∞'];
 
@@ -126,10 +125,9 @@ MOBS.init(scene);
 /* ============================================================
    1. ПОДСВЕТКА
    ============================================================ */
-const hlBox = new THREE.LineSegments(
-  new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004)),
-  new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.55 })
-);
+const hlGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004));
+const hlMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.55 });
+const hlBox = new THREE.LineSegments(hlGeo, hlMat);
 hlBox.visible = false;
 scene.add(hlBox);
 
@@ -137,18 +135,19 @@ scene.add(hlBox);
    2. НАСТРОЙКИ
    ============================================================ */
 const SETTINGS_KEY = 'mcweb_settings_v2';
+const DEFAULT_SETTINGS = { volume: 1, renderDist: 6, fpsLimitIdx: 2 };
 
 function loadSettings() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return { volume: 1, renderDist: 6, fpsLimitIdx: 2 };
+    if (!raw) return Object.assign({}, DEFAULT_SETTINGS);
     const d = JSON.parse(raw);
     return {
       volume: typeof d.volume === 'number' ? d.volume : 1,
       renderDist: typeof d.renderDist === 'number' ? d.renderDist : 6,
       fpsLimitIdx: typeof d.fpsLimitIdx === 'number' ? d.fpsLimitIdx : 2
     };
-  } catch (e) { return { volume: 1, renderDist: 6, fpsLimitIdx: 2 }; }
+  } catch (e) { return Object.assign({}, DEFAULT_SETTINGS); }
 }
 function saveSettings(s) {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) {}
@@ -159,7 +158,6 @@ if (settings.renderDist < 2) settings.renderDist = 2;
 if (settings.renderDist > 12) settings.renderDist = 12;
 if (settings.fpsLimitIdx < 0) settings.fpsLimitIdx = 0;
 if (settings.fpsLimitIdx >= FPS_OPTIONS.length) settings.fpsLimitIdx = FPS_OPTIONS.length - 1;
-/* Вычисляем само значение лимита (0 = без лимита) */
 let fpsLimit = FPS_OPTIONS[settings.fpsLimitIdx];
 
 const settingsBtn   = document.getElementById('btn-settings');
@@ -262,18 +260,12 @@ function toggleSettings(force) {
     wasInGameBeforeSettings = !!document.pointerLockElement;
     settingsPanel.classList.add('open');
     settingsBtn.classList.add('active');
-
-    if (!isMobile && document.pointerLockElement) {
-      document.exitPointerLock();
-    }
+    if (!isMobile && document.pointerLockElement) document.exitPointerLock();
     clampSettingsPosition();
   } else {
     settingsPanel.classList.remove('open');
     settingsBtn.classList.remove('active');
-
-    if (!isMobile && wasInGameBeforeSettings && !dead) {
-      lockPointer();
-    }
+    if (!isMobile && wasInGameBeforeSettings && !dead) lockPointer();
     wasInGameBeforeSettings = false;
   }
 }
@@ -335,13 +327,10 @@ if (!isMobile && settingsDragHandle) {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-
     switchToLeftTop();
-
     const r = settingsPanel.getBoundingClientRect();
     dragOffX = e.clientX - r.left;
     dragOffY = e.clientY - r.top;
-
     dragging = true;
     panelJustDragged = false;
     document.body.classList.add('settings-dragging');
@@ -349,20 +338,16 @@ if (!isMobile && settingsDragHandle) {
 
   document.addEventListener('mousemove', function (e) {
     if (!dragging) return;
-
     let x = e.clientX - dragOffX;
     let y = e.clientY - dragOffY;
-
     const maxX = window.innerWidth  - settingsPanel.offsetWidth;
     const maxY = window.innerHeight - settingsPanel.offsetHeight;
     if (x < 0) x = 0;
     if (y < 0) y = 0;
     if (x > maxX) x = maxX;
     if (y > maxY) y = maxY;
-
     settingsPanel.style.left = x + 'px';
     settingsPanel.style.top  = y + 'px';
-
     panelJustDragged = true;
   });
 
@@ -506,7 +491,7 @@ function collides(px, py, pz) {
   for (let y = y0; y <= y1; y++)
     for (let z = z0; z <= z1; z++)
       for (let x = x0; x <= x1; x++)
-        if (isSolid(x, y, z)) return true;
+        if (world[IDX(x, y, z)] !== 0) return true;
   return false;
 }
 
@@ -873,7 +858,7 @@ if (isMobile) {
 }
 
 /* ============================================================
-   6. РЕЙКАСТ
+   6. РЕЙКАСТ (DDA — voxel traversal)
    ============================================================ */
 const _dir = new THREE.Vector3();
 const _hitDir = new THREE.Vector3();
@@ -881,12 +866,59 @@ const _hitDir = new THREE.Vector3();
 function raycastBlock() {
   _dir.set(0, 0, -1).applyQuaternion(camera.quaternion);
   const ox = camera.position.x, oy = camera.position.y, oz = camera.position.z;
-  let prev = null;
-  for (let t = 0; t < 6; t += 0.02) {
-    const px = ox + _dir.x * t, py = oy + _dir.y * t, pz = oz + _dir.z * t;
-    const bx = Math.floor(px), by = Math.floor(py), bz = Math.floor(pz);
-    if (isSolid(bx, by, bz)) return { x: bx, y: by, z: bz, prev };
-    prev = { x: bx, y: by, z: bz };
+  const dx = _dir.x, dy = _dir.y, dz = _dir.z;
+  const RANGE = 6;
+
+  let x = Math.floor(ox), y = Math.floor(oy), z = Math.floor(oz);
+  if (isSolid(x, y, z)) return { x: x, y: y, z: z, prev: null };
+
+  const stepX = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
+  const stepY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
+  const stepZ = dz > 0 ? 1 : (dz < 0 ? -1 : 0);
+
+  const invX = dx !== 0 ? 1 / Math.abs(dx) : Infinity;
+  const invY = dy !== 0 ? 1 / Math.abs(dy) : Infinity;
+  const invZ = dz !== 0 ? 1 / Math.abs(dz) : Infinity;
+
+  let tMaxX = stepX !== 0
+    ? (stepX > 0 ? (x + 1 - ox) : (ox - x)) * invX
+    : Infinity;
+  let tMaxY = stepY !== 0
+    ? (stepY > 0 ? (y + 1 - oy) : (oy - y)) * invY
+    : Infinity;
+  let tMaxZ = stepZ !== 0
+    ? (stepZ > 0 ? (z + 1 - oz) : (oz - z)) * invZ
+    : Infinity;
+
+  const tDeltaX = stepX !== 0 ? invX : Infinity;
+  const tDeltaY = stepY !== 0 ? invY : Infinity;
+  const tDeltaZ = stepZ !== 0 ? invZ : Infinity;
+
+  let prevX = x, prevY = y, prevZ = z;
+
+  for (let i = 0; i < 64; i++) {
+    let t;
+
+    /* Сохраняем позицию ДО шага — это и есть «предыдущая» клетка
+       в пути луча, независимо от того, по какой оси мы шагнули. */
+    prevX = x; prevY = y; prevZ = z;
+
+    if (tMaxX < tMaxY) {
+      if (tMaxX < tMaxZ) { x += stepX; t = tMaxX; tMaxX += tDeltaX; }
+      else               { z += stepZ; t = tMaxZ; tMaxZ += tDeltaZ; }
+    } else {
+      if (tMaxY < tMaxZ) { y += stepY; t = tMaxY; tMaxY += tDeltaY; }
+      else               { z += stepZ; t = tMaxZ; tMaxZ += tDeltaZ; }
+    }
+
+    if (t > RANGE) return null;
+
+    if (isSolid(x, y, z)) {
+      return {
+        x: x, y: y, z: z,
+        prev: { x: prevX, y: prevY, z: prevZ }
+      };
+    }
   }
   return null;
 }
@@ -1246,8 +1278,10 @@ function update(dt) {
   updateClouds(dt, player.pos);
 
   if (!dead) {
-    _fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
-    _rgt.set( Math.cos(yaw), 0, -Math.sin(yaw));
+    const sinYaw = Math.sin(yaw);
+    const cosYaw = Math.cos(yaw);
+    _fwd.set(-sinYaw, 0, -cosYaw);
+    _rgt.set( cosYaw, 0, -sinYaw);
     _wish.set(0, 0, 0);
 
     let moving = false;
@@ -1447,10 +1481,6 @@ function update(dt) {
 function loop(now) {
   requestAnimationFrame(loop);
 
-  /* --- Лимит FPS: пропускаем кадр, если он слишком рано ---
-     Рендерим, когда прошло >= 90% от целевого интервала.
-     Запас 10% нужен потому, что requestAnimationFrame даёт
-     отметки не ровно через интервал, а с погрешностью. */
   if (fpsLimit > 0) {
     const interval = 1000 / fpsLimit;
     if (now - lastT < interval * 0.9) return;

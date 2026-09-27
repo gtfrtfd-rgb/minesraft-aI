@@ -1,10 +1,8 @@
 /* ============================================================
    mobs.js — мирные мобы с текстурами, звуками, HP и AI.
-   + Текстуры в стиле Minecraft (пятна, шерсть, правильная палитра)
-   + Живые глаза: блик, радужка, зрачок
-   + isBlockOccupied(x,y,z) — не даёт поставить блок внутрь моба
-   + unstickMob — если моб оказался в блоке, выталкивает наверх
-   + Скрытие мобов за пределами радиуса прорисовки
+   + Анимации: голова с pivot, слежение за игроком (периодически),
+     покачивание, поза прыжка
+   + Текстуры в стиле Minecraft + живые глаза
    ============================================================ */
 window.MOBS = (function () {
 'use strict';
@@ -34,7 +32,6 @@ const mobs = [];
 
 let playerPos = null;
 let lastMobSoundTime = -99999;
-/* Радиус прорисовки в блоках — обновляется из game.js */
 let renderDistBlocks = 6 * CS;
 
 const GRAVITY = 28;
@@ -45,9 +42,16 @@ const SOUND_INTERVAL_MAX = 16;
 const PANIC_DURATION = 4.0;
 const PANIC_SPEED_MULT = 1.6;
 const LEG_SWING = 0.55;
-/* Запас: скрываем моба на 1 блок раньше границы видимости,
-   чтобы он не «выскакивал» резко на самом краю */
 const VISIBILITY_MARGIN = 1.0;
+
+/* --- Параметры анимаций головы --- */
+const HEAD_LOOK_RANGE_SQ = 12 * 12;     // радиус, в котором моб может заметить игрока
+const HEAD_MAX_YAW       = 1.15;        // ~66° влево/вправо
+const HEAD_MAX_PITCH     = 0.55;        // ~31° вверх/вниз
+const HEAD_SMOOTH        = 5.5;         // скорость сглаживания
+const HEAD_BOB_Y         = 0.02;        // амплитуда покачивания вверх/вниз
+const HEAD_SWAY          = 0.045;       // амплитуда наклона влево/вправо
+const JUMP_LEG_POSE      = 0.32;        // угол поджатия лап в прыжке
 
 function cl(v) { return v < 0 ? 0 : v > 255 ? 255 : (v | 0); }
 function fract(v) { return v - Math.floor(v); }
@@ -70,11 +74,6 @@ function finalizeTex(canvas) {
   return tex;
 }
 
-/* ------------------------------------------------------------
-   Базовый «пиксельный» рисунок: фон + случайные пятна цветов
-   из заданной палитры. Пятна задаются крупными блоками 1–3 px
-   — это даёт характерный «блочный» вид как в Minecraft.
-   ------------------------------------------------------------ */
 function makeTex(px, palette, options) {
   options = options || {};
   const density   = options.density   != null ? options.density   : 0.35;
@@ -125,16 +124,12 @@ function makeTex(px, palette, options) {
   return finalizeTex(c);
 }
 
-/* ------------------------------------------------------------
-   Свиной пятачок: розовая основа + 2 тёмных ноздри.
-   ------------------------------------------------------------ */
 function makePigSnoutTex() {
   const px = 16;
   const c = newTexCanvas(px);
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(px, px);
   const d = img.data;
-
   const light = [242, 165, 160];
   const dark  = [214, 138, 134];
   const nos   = [90, 40, 50];
@@ -143,12 +138,8 @@ function makePigSnoutTex() {
     for (let x = 0; x < px; x++) {
       const n = hash01((x / 2) | 0, (y / 2) | 0, 41);
       let col = n < 0.5 ? light : dark;
-
       const ny = y >= 6 && y <= 9;
-      const nx1 = (x >= 4 && x <= 5);
-      const nx2 = (x >= 10 && x <= 11);
-      if (ny && (nx1 || nx2)) col = nos;
-
+      if (ny && ((x >= 4 && x <= 5) || (x >= 10 && x <= 11))) col = nos;
       const o = (y * px + x) * 4;
       d[o] = col[0]; d[o+1] = col[1]; d[o+2] = col[2]; d[o+3] = 255;
     }
@@ -157,17 +148,12 @@ function makePigSnoutTex() {
   return finalizeTex(c);
 }
 
-/* ------------------------------------------------------------
-   Морда коровы: коричневая база + белая вертикальная полоса
-   по центру + тёмный контур. Как в Minecraft.
-   ------------------------------------------------------------ */
 function makeCowFaceTex() {
   const px = 16;
   const c = newTexCanvas(px);
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(px, px);
   const d = img.data;
-
   const brown    = [62, 39, 22];
   const brownLt  = [88, 58, 36];
   const brownDk  = [42, 25, 12];
@@ -178,16 +164,10 @@ function makeCowFaceTex() {
     for (let x = 0; x < px; x++) {
       const n = hash01((x / 2) | 0, (y / 2) | 0, 91);
       let col = n < 0.4 ? brown : (n < 0.8 ? brownLt : brownDk);
-
-      const center = Math.abs(x - 7) <= 1 || Math.abs(x - 8) <= 1;
-      if (center && y >= 3) {
+      if ((Math.abs(x - 7) <= 1 || Math.abs(x - 8) <= 1) && y >= 3) {
         col = (n < 0.5) ? muzzle : muzzleDk;
       }
-
-      if (y <= 2 && (x < 4 || x > 11)) {
-        col = brownDk;
-      }
-
+      if (y <= 2 && (x < 4 || x > 11)) col = brownDk;
       const o = (y * px + x) * 4;
       d[o] = col[0]; d[o+1] = col[1]; d[o+2] = col[2]; d[o+3] = 255;
     }
@@ -196,24 +176,18 @@ function makeCowFaceTex() {
   return finalizeTex(c);
 }
 
-/* ------------------------------------------------------------
-   Текстура шерсти овцы: 3 оттенка серого-белого блоками
-   по 2×2 с «кудрявым» рисунком.
-   ------------------------------------------------------------ */
 function makeSheepWoolTex() {
   const px = 16;
   const c = newTexCanvas(px);
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(px, px);
   const d = img.data;
-
   const shade = [
     [235, 235, 235],
     [220, 220, 220],
     [205, 205, 205],
     [190, 190, 190]
   ];
-
   for (let y = 0; y < px; y++) {
     for (let x = 0; x < px; x++) {
       const bx = (x / 2) | 0;
@@ -225,7 +199,6 @@ function makeSheepWoolTex() {
       else if (n + checker < 0.55) idx = 1;
       else if (n + checker < 0.80) idx = 2;
       else                          idx = 3;
-
       const o = (y * px + x) * 4;
       d[o] = shade[idx][0]; d[o+1] = shade[idx][1]; d[o+2] = shade[idx][2];
       d[o+3] = 255;
@@ -235,17 +208,12 @@ function makeSheepWoolTex() {
   return finalizeTex(c);
 }
 
-/* ------------------------------------------------------------
-   Текстура шкуры коровы: коричневая база + крупные белые
-   пятна неправильной формы.
-   ------------------------------------------------------------ */
 function makeCowHideTex() {
   const px = 16;
   const c = newTexCanvas(px);
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(px, px);
   const d = img.data;
-
   const brown   = [62, 39, 22];
   const brownLt = [88, 58, 36];
   const brownDk = [42, 25, 12];
@@ -256,16 +224,12 @@ function makeCowHideTex() {
     for (let x = 0; x < px; x++) {
       const n = hash01((x / 2) | 0, (y / 2) | 0, 8);
       let col = n < 0.4 ? brown : (n < 0.8 ? brownLt : brownDk);
-
       const pbx = (x / 3) | 0;
       const pby = (y / 3) | 0;
       const pn = hash01(pbx, pby, 8 + 200);
       const inBlob1 = (x >= 1 && x <= 7 && y >= 2 && y <= 8) && pn < 0.55;
       const inBlob2 = (x >= 8 && x <= 14 && y >= 9 && y <= 14) && pn > 0.35;
-      if (inBlob1 || inBlob2) {
-        col = (n > 0.5) ? white : whiteDk;
-      }
-
+      if (inBlob1 || inBlob2) col = (n > 0.5) ? white : whiteDk;
       const o = (y * px + x) * 4;
       d[o] = col[0]; d[o+1] = col[1]; d[o+2] = col[2]; d[o+3] = 255;
     }
@@ -274,17 +238,12 @@ function makeCowHideTex() {
   return finalizeTex(c);
 }
 
-/* ------------------------------------------------------------
-   Текстура курицы: белая с лёгким серым оттенком, выделенные
-   перьевые «полосы» по горизонтали.
-   ------------------------------------------------------------ */
 function makeChickenBodyTex() {
   const px = 16;
   const c = newTexCanvas(px);
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(px, px);
   const d = img.data;
-
   const white   = [250, 250, 250];
   const whiteMd = [232, 232, 228];
   const whiteDk = [210, 210, 205];
@@ -298,11 +257,7 @@ function makeChickenBodyTex() {
       else if (n < 0.7) col = whiteMd;
       else if (n < 0.9) col = whiteDk;
       else col = whiteSh;
-
-      if (y % 5 === 2 && (x + ((y / 5) | 0) * 3) % 4 === 0) {
-        col = whiteDk;
-      }
-
+      if (y % 5 === 2 && (x + ((y / 5) | 0) * 3) % 4 === 0) col = whiteDk;
       const o = (y * px + x) * 4;
       d[o] = col[0]; d[o+1] = col[1]; d[o+2] = col[2]; d[o+3] = 255;
     }
@@ -311,16 +266,12 @@ function makeChickenBodyTex() {
   return finalizeTex(c);
 }
 
-/* ------------------------------------------------------------
-   Куриная голова: как тело, но с красным гребешком сверху.
-   ------------------------------------------------------------ */
 function makeChickenHeadTex() {
   const px = 16;
   const c = newTexCanvas(px);
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(px, px);
   const d = img.data;
-
   const white   = [250, 250, 250];
   const whiteMd = [232, 232, 228];
   const whiteDk = [210, 210, 205];
@@ -334,11 +285,7 @@ function makeChickenHeadTex() {
       if (n < 0.5) col = white;
       else if (n < 0.85) col = whiteMd;
       else col = whiteDk;
-
-      if (y <= 2 && x >= 3 && x <= 12) {
-        col = (n > 0.5) ? comb : combDk;
-      }
-
+      if (y <= 2 && x >= 3 && x <= 12) col = (n > 0.5) ? comb : combDk;
       const o = (y * px + x) * 4;
       d[o] = col[0]; d[o+1] = col[1]; d[o+2] = col[2]; d[o+3] = 255;
     }
@@ -347,22 +294,12 @@ function makeChickenHeadTex() {
   return finalizeTex(c);
 }
 
-/* ------------------------------------------------------------
-   ЖИВОЙ ГЛАЗ — улучшенный.
-   Структура:
-     • внешний тёмный контур (край века)
-     • радужка — чуть светлее фона, тёплый оттенок
-     • зрачок — почти чёрный
-     • большой блик сверху-слева (catchlight) — «искра жизни»
-     • маленький вторичный блик снизу-справа (отражение)
-   ------------------------------------------------------------ */
 function makeEyeTex() {
   const px = 16;
   const c = newTexCanvas(px);
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(px, px);
   const d = img.data;
-
   const cx = 7.5, cy = 7.5;
 
   for (let y = 0; y < px; y++) {
@@ -371,37 +308,24 @@ function makeEyeTex() {
       const dx = x - cx, dy = y - cy;
       const dist2 = dx * dx + dy * dy;
 
-      // Внешний тёмный контур (край века)
-      if (dist2 > 42) {
-        r = 8; g = 6; b = 10;
-      }
-      // Радужка
-      else if (dist2 > 14) {
-        r = 34; g = 28; b = 32;
-      }
-      // Зрачок
-      else {
-        r = 10; g = 6; b = 8;
-      }
+      if (dist2 > 42) { r = 8; g = 6; b = 10; }
+      else if (dist2 > 14) { r = 34; g = 28; b = 32; }
+      else { r = 10; g = 6; b = 8; }
 
-      // Большой блик — верхний-левый
       const hx = x - 4.7, hy = y - 4.7;
       const hd2 = hx * hx + hy * hy;
-      if (hd2 < 2.4) {
-        r = 255; g = 255; b = 255;
-      } else if (hd2 < 5.5) {
+      if (hd2 < 2.4) { r = 255; g = 255; b = 255; }
+      else if (hd2 < 5.5) {
         const t = (5.5 - hd2) / 3.1;
         r = Math.min(255, r + 190 * t);
         g = Math.min(255, g + 195 * t);
         b = Math.min(255, b + 200 * t);
       }
 
-      // Вторичный блик — нижний-правый
       const h2x = x - 10, h2y = y - 10.5;
       const h2d2 = h2x * h2x + h2y * h2y;
-      if (h2d2 < 1.4) {
-        r = 195; g = 200; b = 215;
-      } else if (h2d2 < 3) {
+      if (h2d2 < 1.4) { r = 195; g = 200; b = 215; }
+      else if (h2d2 < 3) {
         r = Math.min(255, r + 70);
         g = Math.min(255, g + 70);
         b = Math.min(255, b + 80);
@@ -415,17 +339,12 @@ function makeEyeTex() {
   return finalizeTex(c);
 }
 
-/* ------------------------------------------------------------
-   Глаз коровы: белая склера + крупный чёрный зрачок + блик.
-   Смотрится характерно и узнаваемо, как у настоящей коровы.
-   ------------------------------------------------------------ */
 function makeCowEyeTex() {
   const px = 16;
   const c = newTexCanvas(px);
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(px, px);
   const d = img.data;
-
   const cx = 7.5, cy = 7.5;
 
   for (let y = 0; y < px; y++) {
@@ -434,25 +353,14 @@ function makeCowEyeTex() {
       const dx = x - cx, dy = y - cy;
       const dist2 = dx * dx + dy * dy;
 
-      // Светлая склера по краям
-      if (dist2 > 30) {
-        r = 245; g = 242; b = 234;
-      }
-      // Переходная зона
-      else if (dist2 > 12) {
-        r = 200; g = 196; b = 188;
-      }
-      // Крупный тёмный зрачок
-      else {
-        r = 14; g = 10; b = 12;
-      }
+      if (dist2 > 30) { r = 245; g = 242; b = 234; }
+      else if (dist2 > 12) { r = 200; g = 196; b = 188; }
+      else { r = 14; g = 10; b = 12; }
 
-      // Блик — верхний-левый
       const hx = x - 5, hy = y - 5;
       const hd2 = hx * hx + hy * hy;
-      if (hd2 < 2) {
-        r = 255; g = 255; b = 255;
-      } else if (hd2 < 4.5) {
+      if (hd2 < 2) { r = 255; g = 255; b = 255; }
+      else if (hd2 < 4.5) {
         const t = (4.5 - hd2) / 2.5;
         r = Math.min(255, r + 180 * t);
         g = Math.min(255, g + 180 * t);
@@ -467,9 +375,6 @@ function makeCowEyeTex() {
   return finalizeTex(c);
 }
 
-/* ------------------------------------------------------------
-   Текстуры ног / крыльев / рогов — простые однотонные.
-   ------------------------------------------------------------ */
 function makeSolidTex(px, palette, seed) {
   const c = newTexCanvas(px);
   const ctx = c.getContext('2d');
@@ -488,84 +393,35 @@ function makeSolidTex(px, palette, seed) {
   return finalizeTex(c);
 }
 
-/* ------------------------------------------------------------
-   Палитры цветов (Minecraft-подобные).
-   ------------------------------------------------------------ */
-const PIG_BASE = [
-  [242, 165, 160],
-  [228, 148, 144],
-  [214, 130, 128],
-  [196, 114, 112]
-];
-const PIG_LEG = [
-  [214, 130, 128],
-  [198, 116, 114],
-  [180, 100, 100]
-];
-const SHEEP_FACE = [
-  [88, 78, 70],
-  [70, 62, 56],
-  [52, 46, 42]
-];
-const SHEEP_LEG = [
-  [72, 66, 60],
-  [58, 52, 48],
-  [44, 40, 36]
-];
-const COW_HORN = [
-  [238, 234, 214],
-  [216, 208, 186],
-  [188, 178, 156]
-];
-const COW_LEG = [
-  [62, 39, 22],
-  [50, 30, 16],
-  [38, 22, 10]
-];
-const CHICKEN_BEAK = [
-  [242, 168, 40],
-  [222, 148, 28],
-  [198, 126, 18]
-];
-const CHICKEN_LEG = [
-  [232, 158, 30],
-  [208, 136, 20],
-  [180, 114, 12]
-];
-const WATTLE_RED = [
-  [220, 40, 40],
-  [190, 26, 26],
-  [160, 18, 18]
-];
+const PIG_BASE = [[242,165,160],[228,148,144],[214,130,128],[196,114,112]];
+const PIG_LEG = [[214,130,128],[198,116,114],[180,100,100]];
+const SHEEP_FACE = [[88,78,70],[70,62,56],[52,46,42]];
+const SHEEP_LEG = [[72,66,60],[58,52,48],[44,40,36]];
+const COW_HORN = [[238,234,214],[216,208,186],[188,178,156]];
+const COW_LEG = [[62,39,22],[50,30,16],[38,22,10]];
+const CHICKEN_BEAK = [[242,168,40],[222,148,28],[198,126,18]];
+const CHICKEN_LEG = [[232,158,30],[208,136,20],[180,114,12]];
+const WATTLE_RED = [[220,40,40],[190,26,26],[160,18,18]];
 
 const MOB_TEXTURES = {
-  // Свинья — розовая с мраморными пятнами
   pigBody:  makeTex(16, PIG_BASE, { density: 0.55, seed: 1 }),
   pigHead:  makeTex(16, PIG_BASE, { density: 0.55, seed: 2 }),
   pigSnout: makePigSnoutTex(),
   pigLeg:   makeSolidTex(16, PIG_LEG, 4),
-
-  // Овца — «кудрявая» шерсть + тёмная морда
   sheepWool: makeSheepWoolTex(),
   sheepFace: makeSolidTex(16, SHEEP_FACE, 6),
   sheepLeg:  makeSolidTex(16, SHEEP_LEG, 7),
-
-  // Корова — коричневая шкура с большими белыми пятнами
   cowHide: makeCowHideTex(),
   cowFace: makeCowFaceTex(),
   cowHorn: makeSolidTex(16, COW_HORN, 10),
   cowLeg:  makeSolidTex(16, COW_LEG, 11),
-
-  // Курица — белая с гребешком и перьями
   chickenBody: makeChickenBodyTex(),
   chickenHead: makeChickenHeadTex(),
   chickenBeak: makeSolidTex(16, CHICKEN_BEAK, 13),
   chickenLeg:  makeSolidTex(16, CHICKEN_LEG, 14),
-
-  // Глаза — живые, с бликом
-  eye:    makeEyeTex(),       // универсальный (свинья, овца, курица)
-  cowEye: makeCowEyeTex()     // отдельный для коровы
-
+  wattle: makeSolidTex(16, WATTLE_RED, 15),
+  eye:    makeEyeTex(),
+  cowEye: makeCowEyeTex()
 };
 
 const SHADES = [0.92, 0.76, 1.00, 0.55, 0.86, 0.86];
@@ -590,93 +446,111 @@ function getMobMaterial(color, texKey, faceIdx) {
 }
 
 function makeBox(w, h, d, color, texKey) {
-  const mats = [];
-  for (let i = 0; i < 6; i++) mats.push(getMobMaterial(color, texKey, i));
+  const mats = new Array(6);
+  for (let i = 0; i < 6; i++) mats[i] = getMobMaterial(color, texKey, i);
   return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats);
 }
 
+/* ------------------------------------------------------------
+   ТИПЫ МОБОВ
+   Формат parts: [w, h, d, color, x, y, z, tag, texKey]
+   tag: ''  — статичная часть тела
+        'l' — лапа (в pivot для качания)
+        'h' — часть головы (в headGroup с pivot)
+   ------------------------------------------------------------ */
 const MOB_TYPES = {
-
   pig: {
     h: 0.9, r: 0.42, speed: 1.4, hp: 10,
+    headPivot: [0, 0.75, -0.35],
     parts: [
-      [0.625, 0.5,   1.0,   0xEE9999,  0,    0.625,  0,     false, 'pigBody'],
-      [0.5,   0.5,   0.5,   0xEE9999,  0,    0.75,  -0.55,  false, 'pigHead'],
-      [0.25,  0.2,   0.1,   0xCC6677,  0,    0.66,  -0.85,  false, 'pigSnout'],
-      [0.05,  0.05,  0.02,  0x551122, -0.06, 0.66,  -0.91,  false, null],
-      [0.05,  0.05,  0.02,  0x551122,  0.06, 0.66,  -0.91,  false, null],
-      [0.1,   0.1,   0.02,  0x111111, -0.15, 0.875, -0.81,  false, 'eye'],
-      [0.1,   0.1,   0.02,  0x111111,  0.15, 0.875, -0.81,  false, 'eye'],
-      [0.1,   0.1,   0.08,  0xCC6677, -0.15, 1.02,  -0.5,   false, null],
-      [0.1,   0.1,   0.08,  0xCC6677,  0.15, 1.02,  -0.5,   false, null],
-      [0.25,  0.375, 0.25,  0xCC6677, -0.19, 0.1875, -0.33, true,  'pigLeg'],
-      [0.25,  0.375, 0.25,  0xCC6677,  0.19, 0.1875, -0.33, true,  'pigLeg'],
-      [0.25,  0.375, 0.25,  0xCC6677, -0.19, 0.1875,  0.33, true,  'pigLeg'],
-      [0.25,  0.375, 0.25,  0xCC6677,  0.19, 0.1875,  0.33, true,  'pigLeg']
+      [0.625, 0.5,   1.0,   0xEE9999,  0,    0.625,  0,     '',  'pigBody'],
+      [0.5,   0.5,   0.5,   0xEE9999,  0,    0.75,  -0.55,  'h', 'pigHead'],
+      [0.25,  0.2,   0.1,   0xCC6677,  0,    0.66,  -0.85,  'h', 'pigSnout'],
+      [0.05,  0.05,  0.02,  0x551122, -0.06, 0.66,  -0.91,  'h', null],
+      [0.05,  0.05,  0.02,  0x551122,  0.06, 0.66,  -0.91,  'h', null],
+      [0.1,   0.1,   0.02,  0x111111, -0.15, 0.875, -0.81,  'h', 'eye'],
+      [0.1,   0.1,   0.02,  0x111111,  0.15, 0.875, -0.81,  'h', 'eye'],
+      [0.1,   0.1,   0.08,  0xCC6677, -0.15, 1.02,  -0.5,   'h', null],
+      [0.1,   0.1,   0.08,  0xCC6677,  0.15, 1.02,  -0.5,   'h', null],
+      [0.25,  0.375, 0.25,  0xCC6677, -0.19, 0.1875, -0.33, 'l', 'pigLeg'],
+      [0.25,  0.375, 0.25,  0xCC6677,  0.19, 0.1875, -0.33, 'l', 'pigLeg'],
+      [0.25,  0.375, 0.25,  0xCC6677, -0.19, 0.1875,  0.33, 'l', 'pigLeg'],
+      [0.25,  0.375, 0.25,  0xCC6677,  0.19, 0.1875,  0.33, 'l', 'pigLeg']
     ]
   },
 
   sheep: {
     h: 1.25, r: 0.42, speed: 1.2, hp: 8,
+    headPivot: [0, 0.875, -0.5],
     parts: [
-      [0.75,  0.75,  1.0,   0xEEEEEE,  0,    0.875,  0,     false, 'sheepWool'],
-      [0.4,   0.5,   0.4,   0x444444,  0,    0.875, -0.7,   false, 'sheepFace'],
-      [0.09,  0.09,  0.02,  0xFFFFFF, -0.1,  0.95,  -0.91,  false, 'eye'],
-      [0.09,  0.09,  0.02,  0xFFFFFF,  0.1,  0.95,  -0.91,  false, 'eye'],
-      [0.25,  0.5,   0.25,  0x333333, -0.2,  0.25,  -0.3,   true,  'sheepLeg'],
-      [0.25,  0.5,   0.25,  0x333333,  0.2,  0.25,  -0.3,   true,  'sheepLeg'],
-      [0.25,  0.5,   0.25,  0x333333, -0.2,  0.25,   0.3,   true,  'sheepLeg'],
-      [0.25,  0.5,   0.25,  0x333333,  0.2,  0.25,   0.3,   true,  'sheepLeg']
+      [0.75,  0.75,  1.0,   0xEEEEEE,  0,    0.875,  0,     '',  'sheepWool'],
+      [0.4,   0.5,   0.4,   0x444444,  0,    0.875, -0.7,   'h', 'sheepFace'],
+      [0.09,  0.09,  0.02,  0xFFFFFF, -0.1,  0.95,  -0.91,  'h', 'eye'],
+      [0.09,  0.09,  0.02,  0xFFFFFF,  0.1,  0.95,  -0.91,  'h', 'eye'],
+      [0.25,  0.5,   0.25,  0x333333, -0.2,  0.25,  -0.3,   'l', 'sheepLeg'],
+      [0.25,  0.5,   0.25,  0x333333,  0.2,  0.25,  -0.3,   'l', 'sheepLeg'],
+      [0.25,  0.5,   0.25,  0x333333, -0.2,  0.25,   0.3,   'l', 'sheepLeg'],
+      [0.25,  0.5,   0.25,  0x333333,  0.2,  0.25,   0.3,   'l', 'sheepLeg']
     ]
   },
 
   cow: {
     h: 1.45, r: 0.45, speed: 1.2, hp: 10,
+    headPivot: [0, 1.0625, -0.5],
     parts: [
-      [0.75,  0.625, 1.125, 0x664422,  0,    1.0625,  0,     false, 'cowHide'],
-      [0.5,   0.5,   0.5,   0x664422,  0,    1.0625, -0.7,   false, 'cowFace'],
-      [0.1,   0.15,  0.1,   0xF0F0D0, -0.15, 1.38,   -0.7,   false, 'cowHorn'],
-      [0.1,   0.15,  0.1,   0xF0F0D0,  0.15, 1.38,   -0.7,   false, 'cowHorn'],
-      [0.09,  0.09,  0.02,  0x000000, -0.15, 1.15,   -0.96,  false, 'cowEye'],
-      [0.09,  0.09,  0.02,  0x000000,  0.15, 1.15,   -0.96,  false, 'cowEye'],
-      [0.25,  0.75,  0.25,  0x442211, -0.25, 0.375,  -0.4,   true,  'cowLeg'],
-      [0.25,  0.75,  0.25,  0x442211,  0.25, 0.375,  -0.4,   true,  'cowLeg'],
-      [0.25,  0.75,  0.25,  0x442211, -0.25, 0.375,   0.4,   true,  'cowLeg'],
-      [0.25,  0.75,  0.25,  0x442211,  0.25, 0.375,   0.4,   true,  'cowLeg']
+      [0.75,  0.625, 1.125, 0x664422,  0,    1.0625,  0,     '',  'cowHide'],
+      [0.5,   0.5,   0.5,   0x664422,  0,    1.0625, -0.7,   'h', 'cowFace'],
+      [0.1,   0.15,  0.1,   0xF0F0D0, -0.15, 1.38,   -0.7,   'h', 'cowHorn'],
+      [0.1,   0.15,  0.1,   0xF0F0D0,  0.15, 1.38,   -0.7,   'h', 'cowHorn'],
+      [0.09,  0.09,  0.02,  0x000000, -0.15, 1.15,   -0.96,  'h', 'cowEye'],
+      [0.09,  0.09,  0.02,  0x000000,  0.15, 1.15,   -0.96,  'h', 'cowEye'],
+      [0.25,  0.75,  0.25,  0x442211, -0.25, 0.375,  -0.4,   'l', 'cowLeg'],
+      [0.25,  0.75,  0.25,  0x442211,  0.25, 0.375,  -0.4,   'l', 'cowLeg'],
+      [0.25,  0.75,  0.25,  0x442211, -0.25, 0.375,   0.4,   'l', 'cowLeg'],
+      [0.25,  0.75,  0.25,  0x442211,  0.25, 0.375,   0.4,   'l', 'cowLeg']
     ]
   },
 
   chicken: {
     h: 0.7, r: 0.22, speed: 2.0, hp: 4,
+    headPivot: [0, 0.75, -0.18],
     parts: [
-      [0.3,   0.4,   0.4,   0xFFFFFF,  0,    0.45,   0,     false, 'chickenBody'],
-      [0.2,   0.3,   0.2,   0xFFFFFF,  0,    0.75,  -0.28,  false, 'chickenHead'],
-      [0.15,  0.1,   0.15,  0xE8A020,  0,    0.7,   -0.45,  false, 'chickenBeak'],
-      [0.1,   0.08,  0.04,  0xCC2222,  0,    0.6,   -0.45,  false, 'wattle'],
-      [0.07,  0.07,  0.02,  0x000000, -0.06, 0.8,   -0.39,  false, 'eye'],
-      [0.07,  0.07,  0.02,  0x000000,  0.06, 0.8,   -0.39,  false, 'eye'],
-      [0.05,  0.25,  0.3,   0xEEEEEE, -0.175, 0.45,  0,     false, 'chickenBody'],
-      [0.05,  0.25,  0.3,   0xEEEEEE,  0.175, 0.45,  0,     false, 'chickenBody'],
-      [0.08,  0.25,  0.08,  0xE8A020, -0.08, 0.125,  0.05,  true,  'chickenLeg'],
-      [0.08,  0.25,  0.08,  0xE8A020,  0.08, 0.125,  0.05,  true,  'chickenLeg']
+      [0.3,   0.4,   0.4,   0xFFFFFF,  0,    0.45,   0,     '',  'chickenBody'],
+      [0.2,   0.3,   0.2,   0xFFFFFF,  0,    0.75,  -0.28,  'h', 'chickenHead'],
+      [0.15,  0.1,   0.15,  0xE8A020,  0,    0.7,   -0.45,  'h', 'chickenBeak'],
+      [0.1,   0.08,  0.04,  0xCC2222,  0,    0.6,   -0.45,  'h', 'wattle'],
+      [0.07,  0.07,  0.02,  0x000000, -0.06, 0.8,   -0.39,  'h', 'eye'],
+      [0.07,  0.07,  0.02,  0x000000,  0.06, 0.8,   -0.39,  'h', 'eye'],
+      [0.05,  0.25,  0.3,   0xEEEEEE, -0.175, 0.45,  0,     '',  'chickenBody'],
+      [0.05,  0.25,  0.3,   0xEEEEEE,  0.175, 0.45,  0,     '',  'chickenBody'],
+      [0.08,  0.25,  0.08,  0xE8A020, -0.08, 0.125,  0.05,  'l', 'chickenLeg'],
+      [0.08,  0.25,  0.08,  0xE8A020,  0.08, 0.125,  0.05,  'l', 'chickenLeg']
     ]
   }
-
 };
 
 function buildMobMesh(type) {
   const def = MOB_TYPES[type];
   const group = new THREE.Group();
   const legs = [];
+  let headGroup = null;
+
+  const hp = def.headPivot;
+  if (hp) {
+    headGroup = new THREE.Group();
+    headGroup.position.set(hp[0], hp[1], hp[2]);
+    headGroup.rotation.order = 'YXZ';
+    group.add(headGroup);
+  }
 
   for (let i = 0; i < def.parts.length; i++) {
     const p = def.parts[i];
     const w = p[0], h = p[1], d = p[2], color = p[3];
     const x = p[4], y = p[5], z = p[6];
-    const isLeg = p[7];
+    const tag = p[7] || '';
     const texKey = p[8];
 
-    if (isLeg) {
+    if (tag === 'l') {
       const pivotY = y + h / 2;
       const pivot = new THREE.Group();
       pivot.position.set(x, pivotY, z);
@@ -684,7 +558,15 @@ function buildMobMesh(type) {
       legMesh.position.set(0, -h / 2, 0);
       pivot.add(legMesh);
       group.add(pivot);
-      legs.push({ pivot: pivot, dir: (i % 2 === 0) ? 1 : -1 });
+      legs.push({
+        pivot: pivot,
+        dir: (i % 2 === 0) ? 1 : -1,
+        front: z < 0
+      });
+    } else if (tag === 'h' && headGroup) {
+      const mesh = makeBox(w, h, d, color, texKey);
+      mesh.position.set(x - hp[0], y - hp[1], z - hp[2]);
+      headGroup.add(mesh);
     } else {
       const mesh = makeBox(w, h, d, color, texKey);
       mesh.position.set(x, y, z);
@@ -692,7 +574,7 @@ function buildMobMesh(type) {
     }
   }
 
-  return { group: group, legs: legs };
+  return { group: group, legs: legs, headGroup: headGroup };
 }
 
 function createMob(type, x, y, z, yaw) {
@@ -710,6 +592,19 @@ function createMob(type, x, y, z, yaw) {
     def: def,
     group: group,
     legs: built.legs,
+    headGroup: built.headGroup,
+
+    /* Текущие значения анимации головы (сглаживаются) */
+    headYaw: 0,
+    headPitch: 0,
+    headBobPhase: Math.random() * Math.PI * 2,
+    /* AI головы: периодически поглядывает на игрока, потом отводит взгляд */
+    headLookAtPlayer: false,
+    headLookTimer: 1 + Math.random() * 4,
+    headGlanceTimer: 0,
+    headIdleYaw: 0,
+    headIdlePitch: 0,
+
     pos: new THREE.Vector3(x, y, z),
     vel: new THREE.Vector3(0, 0, 0),
     yaw: startYaw,
@@ -763,7 +658,6 @@ function canJumpOver(mob, axisX, axisZ) {
   const ix = Math.floor(nx), iz = Math.floor(nz);
   if (ix < 0 || ix >= SX || iz < 0 || iz >= SZ) return false;
   if (!isSolid(ix, groundY, iz)) return false;
-
   return true;
 }
 
@@ -820,8 +714,7 @@ function reactToWall(mob) {
 }
 
 function maybePlaySound(mob) {
-  if (!playerPos) return;
-  if (!window.SFX) return;
+  if (!playerPos || !window.SFX) return;
   if (mob.panicTimer > 0) return;
 
   const dx = mob.pos.x - playerPos.x;
@@ -925,16 +818,12 @@ function isBlockOccupied(bx, by, bz) {
     const m = mobs[i];
     if (m.dead) continue;
     const r = m.def.r, h = m.def.h;
-    const minX = m.pos.x - r, maxX = m.pos.x + r;
-    const minY = m.pos.y,     maxY = m.pos.y + h;
-    const minZ = m.pos.z - r, maxZ = m.pos.z + r;
-
-    if (bx + 1 <= minX) continue;
-    if (bx     >= maxX) continue;
-    if (by + 1 <= minY) continue;
-    if (by     >= maxY) continue;
-    if (bz + 1 <= minZ) continue;
-    if (bz     >= maxZ) continue;
+    if (bx + 1 <= m.pos.x - r) continue;
+    if (bx     >= m.pos.x + r) continue;
+    if (by + 1 <= m.pos.y)     continue;
+    if (by     >= m.pos.y + h) continue;
+    if (bz + 1 <= m.pos.z - r) continue;
+    if (bz     >= m.pos.z + r) continue;
     return true;
   }
   return false;
@@ -959,23 +848,132 @@ function unstickMob(mob) {
   }
 }
 
-/* --- Видимость моба: скрываем, если за пределами радиуса --- */
 function updateMobVisibility(mob) {
   if (!playerPos) return;
   const dx = mob.pos.x - playerPos.x;
   const dz = mob.pos.z - playerPos.z;
   const limit = renderDistBlocks + VISIBILITY_MARGIN;
   const visible = (dx * dx + dz * dz) <= limit * limit;
-
   if (mob.hurtTimer > 0) {
-    if (visible) {
-      // мигание под контролем updateMob, не перебиваем
-    } else {
-      mob.group.visible = false;
-    }
+    if (!visible) mob.group.visible = false;
   } else {
     mob.group.visible = visible;
   }
+}
+
+/* ------------------------------------------------------------
+   Анимация головы.
+   Моб НЕ смотрит постоянно на игрока. Вместо этого у него
+   периодический «интерес»: раз в 2–7 секунд моб решает —
+   взглянуть на игрока (≈45% если тот рядом) или отвести взгляд
+   в случайную сторону. Взгляд плавно сглаживается.
+   ------------------------------------------------------------ */
+function animateHead(mob, dt) {
+  const hg = mob.headGroup;
+  if (!hg) return;
+
+  let targetYaw = 0;
+  let targetPitch = 0;
+
+  /* Игрок рядом? */
+  let playerNearby = false;
+  let relYawToPlayer = 0;
+  let relPitchToPlayer = 0;
+
+  if (playerPos && !mob.dead) {
+    const dx = playerPos.x - mob.pos.x;
+    const dz = playerPos.z - mob.pos.z;
+    const distSq = dx * dx + dz * dz;
+
+    if (distSq < HEAD_LOOK_RANGE_SQ && distSq > 0.25) {
+      playerNearby = true;
+      const distXZ = Math.sqrt(distSq);
+      const playerEyeY = playerPos.y + 1.62;
+      const headWorldY = mob.pos.y + mob.def.headPivot[1];
+      const dy = playerEyeY - headWorldY;
+
+      const desiredWorldYaw = Math.atan2(-dx, -dz);
+      let relYaw = desiredWorldYaw - mob.yaw;
+      while (relYaw >  Math.PI) relYaw -= Math.PI * 2;
+      while (relYaw < -Math.PI) relYaw += Math.PI * 2;
+      if (relYaw >  HEAD_MAX_YAW) relYaw =  HEAD_MAX_YAW;
+      if (relYaw < -HEAD_MAX_YAW) relYaw = -HEAD_MAX_YAW;
+      relYawToPlayer = relYaw;
+
+      let relPitch = -Math.atan2(dy, distXZ);
+      if (relPitch >  HEAD_MAX_PITCH) relPitch =  HEAD_MAX_PITCH;
+      if (relPitch < -HEAD_MAX_PITCH) relPitch = -HEAD_MAX_PITCH;
+      relPitchToPlayer = relPitch;
+    }
+  }
+
+  /* --- AI головы --- */
+  if (mob.panicTimer > 0) {
+    /* В панике голова смотрит туда, куда тело бежит */
+    mob.headLookAtPlayer = false;
+    targetYaw = 0;
+    targetPitch = 0;
+  } else if (mob.headLookAtPlayer) {
+    /* Сейчас смотрит на игрока — держим, пока не истечёт таймер */
+    mob.headGlanceTimer -= dt;
+    if (!playerNearby || mob.headGlanceTimer <= 0) {
+      /* Игрок ушёл или пора отвести взгляд */
+      mob.headLookAtPlayer = false;
+      mob.headLookTimer = 2 + Math.random() * 5;
+      const sign = Math.random() < 0.5 ? -1 : 1;
+      mob.headIdleYaw = sign * (0.15 + Math.random() * 0.55);
+      if (mob.headIdleYaw >  HEAD_MAX_YAW) mob.headIdleYaw =  HEAD_MAX_YAW;
+      if (mob.headIdleYaw < -HEAD_MAX_YAW) mob.headIdleYaw = -HEAD_MAX_YAW;
+      mob.headIdlePitch = (Math.random() - 0.5) * 0.35;
+    } else {
+      targetYaw = relYawToPlayer;
+      targetPitch = relPitchToPlayer;
+    }
+  } else {
+    /* Не смотрит на игрока — ждём своего часа */
+    mob.headLookTimer -= dt;
+    if (mob.headLookTimer <= 0) {
+      if (playerNearby && Math.random() < 0.45) {
+        /* Решил глянуть */
+        mob.headLookAtPlayer = true;
+        mob.headGlanceTimer = 1.2 + Math.random() * 2.5;
+        targetYaw = relYawToPlayer;
+        targetPitch = relPitchToPlayer;
+      } else {
+        /* Снова не смотрит — выбираем новое направление «в сторону» */
+        mob.headLookTimer = 2 + Math.random() * 5;
+        const sign = Math.random() < 0.5 ? -1 : 1;
+        mob.headIdleYaw = sign * (0.15 + Math.random() * 0.55);
+        if (mob.headIdleYaw >  HEAD_MAX_YAW) mob.headIdleYaw =  HEAD_MAX_YAW;
+        if (mob.headIdleYaw < -HEAD_MAX_YAW) mob.headIdleYaw = -HEAD_MAX_YAW;
+        mob.headIdlePitch = (Math.random() - 0.5) * 0.35;
+        targetYaw = mob.headIdleYaw;
+        targetPitch = mob.headIdlePitch;
+      }
+    } else {
+      /* Ведём голову к текущей «праздной» цели */
+      targetYaw = mob.headIdleYaw;
+      targetPitch = mob.headIdlePitch;
+    }
+  }
+
+  const k = Math.min(1, HEAD_SMOOTH * dt);
+  mob.headYaw   += (targetYaw   - mob.headYaw)   * k;
+  mob.headPitch += (targetPitch - mob.headPitch) * k;
+
+  /* Покачивание при ходьбе */
+  let bobY = 0;
+  let sway = 0;
+  if (mob.walking && mob.onGround && mob.panicTimer <= 0) {
+    const ph = mob.walkPhase + mob.headBobPhase;
+    bobY = Math.sin(ph * 2) * HEAD_BOB_Y;
+    sway = Math.sin(ph) * HEAD_SWAY;
+  }
+
+  hg.position.y = mob.def.headPivot[1] + bobY;
+  hg.rotation.y = mob.headYaw;
+  hg.rotation.x = mob.headPitch;
+  hg.rotation.z = sway;
 }
 
 function updateMob(mob, dt) {
@@ -1031,9 +1029,7 @@ function updateMob(mob, dt) {
         const dx = playerPos.x - mob.pos.x;
         const dz = playerPos.z - mob.pos.z;
         const d2 = dx * dx + dz * dz;
-        if (d2 < 36) {
-          mob.targetYaw = Math.atan2(-dx, -dz);
-        }
+        if (d2 < 36) mob.targetYaw = Math.atan2(-dx, -dz);
       }
     }
   }
@@ -1053,9 +1049,9 @@ function updateMob(mob, dt) {
   mob.vel.y -= GRAVITY * dt;
   if (mob.vel.y < -30) mob.vel.y = -30;
 
-  const prevVx = mob.vel.x, prevVz = mob.vel.z;
-  mob.vel.x = prevVx * Math.max(0, 1 - 4 * dt);
-  mob.vel.z = prevVz * Math.max(0, 1 - 4 * dt);
+  const friction = Math.max(0, 1 - 4 * dt);
+  mob.vel.x *= friction;
+  mob.vel.z *= friction;
   const totalVx = vx + mob.vel.x;
   const totalVz = vz + mob.vel.z;
 
@@ -1065,8 +1061,9 @@ function updateMob(mob, dt) {
   if (mob.onGround && mob.vel.y < 0) mob.vel.y = 0;
 
   if (mob.walking && mob.onGround && mob.panicTimer <= 0) {
-    const movedSq = (mob.pos.x - mob.lastX) * (mob.pos.x - mob.lastX) +
-                    (mob.pos.z - mob.lastZ) * (mob.pos.z - mob.lastZ);
+    const mdx = mob.pos.x - mob.lastX;
+    const mdz = mob.pos.z - mob.lastZ;
+    const movedSq = mdx * mdx + mdz * mdz;
     const expected = def.speed * dt * 0.1;
     if (movedSq < expected * expected) {
       mob.stuckTimer += dt;
@@ -1086,19 +1083,46 @@ function updateMob(mob, dt) {
   mob.lastX = mob.pos.x;
   mob.lastZ = mob.pos.z;
 
+  /* ============================================================
+     АНИМАЦИЯ ЛАП
+     1. В прыжке — поджимаются
+     2. При ходьбе — попарно качаются
+     3. В покое — плавно возвращаются в исходное
+     ============================================================ */
+  if (!mob.onGround) {
+    const rising = mob.vel.y > 0;
+    const frontPose = rising ? -JUMP_LEG_POSE : -JUMP_LEG_POSE * 0.4;
+    const backPose  = rising ?  JUMP_LEG_POSE :  JUMP_LEG_POSE * 0.4;
+    for (let i = 0; i < mob.legs.length; i++) {
+      const leg = mob.legs[i];
+      const target = leg.front ? frontPose : backPose;
+      leg.pivot.rotation.x += (target - leg.pivot.rotation.x) * Math.min(1, 10 * dt);
+    }
+  } else if (mob.walking) {
+    const swing = Math.sin(mob.walkPhase) * LEG_SWING;
+    for (let i = 0; i < mob.legs.length; i++) {
+      const leg = mob.legs[i];
+      leg.pivot.rotation.x = swing * leg.dir;
+    }
+  } else {
+    const k = Math.min(1, 8 * dt);
+    for (let i = 0; i < mob.legs.length; i++) {
+      const leg = mob.legs[i];
+      leg.pivot.rotation.x += (0 - leg.pivot.rotation.x) * k;
+    }
+  }
+
   if (mob.walking && mob.onGround) {
     mob.walkPhase += dt * 8 * speedMult;
   } else {
     mob.walkPhase *= 0.85;
   }
-  const swing = Math.sin(mob.walkPhase) * LEG_SWING;
-  for (let i = 0; i < mob.legs.length; i++) {
-    const leg = mob.legs[i];
-    leg.pivot.rotation.x = swing * leg.dir;
-  }
 
   mob.group.position.copy(mob.pos);
   mob.group.rotation.y = mob.yaw;
+
+  /* --- Анимация головы --- */
+  animateHead(mob, dt);
 
   updateMobVisibility(mob);
 
@@ -1204,9 +1228,7 @@ function rebuildTextures() {
   });
 }
 
-function init(sc) {
-  scene = sc;
-}
+function init(sc) { scene = sc; }
 
 function update(dt, pPos, renderDistanceBlocks) {
   if (pPos) playerPos = pPos;
@@ -1226,13 +1248,8 @@ function update(dt, pPos, renderDistanceBlocks) {
   }
 }
 
-function raycast(origin, dir, maxDist) {
-  return raycastMob(origin, dir, maxDist);
-}
-
-function hit(mob, damage, fromX, fromZ) {
-  return hitMob(mob, damage, fromX, fromZ);
-}
+function raycast(origin, dir, maxDist) { return raycastMob(origin, dir, maxDist); }
+function hit(mob, damage, fromX, fromZ) { return hitMob(mob, damage, fromX, fromZ); }
 
 return {
   init: init,

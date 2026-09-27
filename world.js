@@ -1,16 +1,14 @@
 /* ============================================================
    world.js — мир 256×256×48 с биомами и улучшенным рельефом.
    + userData (cx, cz) на чанк-мешах для управления видимостью
-   + updateChunkVisibility(px, pz, radius) — скрывает чанки вне
-     радиуса прорисовки (как render distance в Minecraft)
+   + updateChunkVisibility(px, pz, radius)
+   + Предвычисленные UV для тайлов (ускорение buildChunk)
+   + Быстрый isSolid без лишних ветвлений
    ============================================================ */
 window.MC = window.MC || {};
 (function (MC) {
 'use strict';
 
-/* ============================================================
-   1. КОНСТАНТЫ И МИРОВОЙ МАССИВ
-   ============================================================ */
 const SX = 256, SZ = 256, SY = 48;
 const CS = 16;
 const CHX = SX / CS, CHZ = SZ / CS;
@@ -24,9 +22,6 @@ const BIOME_DESERT   = 2;
 const BIOME_SNOW     = 3;
 const BIOME_MOUNTAIN = 4;
 
-/* ============================================================
-   2. ГЕНЕРАТОР СЛУЧАЙНЫХ ЧИСЕЛ + ШУМ
-   ============================================================ */
 let _r = 123456789;
 function rnd() {
   _r = (Math.imul(_r, 1103515245) + 12345) & 0x7fffffff;
@@ -47,7 +42,7 @@ function vnoise(x, z, s) {
 }
 
 /* ============================================================
-   3. ТЕКСТУРНЫЙ АТЛАС
+   АТЛАС ТЕКСТУР
    ============================================================ */
 const TILE = 16, ACOLS = 4, AROWS = 4;
 const atlasCanvas = document.createElement('canvas');
@@ -136,7 +131,7 @@ atlasTexture.generateMipmaps = false;
 atlasTexture.wrapS = atlasTexture.wrapT = THREE.ClampToEdgeWrapping;
 
 /* ============================================================
-   4. ОПРЕДЕЛЕНИЯ БЛОКОВ
+   ОПРЕДЕЛЕНИЯ БЛОКОВ
    ============================================================ */
 const BLOCKS = {
   1:  { name: 'Трава',     top: 0,  side: 1,  bottom: 2  },
@@ -153,8 +148,14 @@ const BLOCKS = {
   12: { name: 'Обсидиан',  top: 13, side: 13, bottom: 13 }
 };
 
+/* Предвычисленный флаг transparent (быстрый доступ при обходе) */
+const BLOCK_TRANSPARENT = new Uint8Array(256);
+for (const id in BLOCKS) {
+  if (BLOCKS[id].transparent) BLOCK_TRANSPARENT[id] = 1;
+}
+
 /* ============================================================
-   5. ГЕНЕРАЦИЯ МИРА
+   ГЕНЕРАЦИЯ МИРА
    ============================================================ */
 function generateWorld(s) {
   world.fill(0);
@@ -289,12 +290,11 @@ function buildPine(x, y, z) {
 }
 
 /* ============================================================
-   6. ДОСТУП К БЛОКАМ
+   ДОСТУП К БЛОКАМ
    ============================================================ */
 function getBlock(x, y, z) {
+  if (y < 0 || y >= SY) return 0;
   if (x < 0 || x >= SX || z < 0 || z >= SZ) return 0;
-  if (y < 0) return 1;
-  if (y >= SY) return 0;
   return world[IDX(x, y, z)];
 }
 function isSolid(x, y, z) {
@@ -310,7 +310,7 @@ function highestAt(x, z) {
 }
 
 /* ============================================================
-   7. МЕШИ ЧАНКОВ
+   МЕШИ ЧАНКОВ
    ============================================================ */
 const matOpaque = new THREE.MeshBasicMaterial({ map: atlasTexture, vertexColors: true });
 const matTrans  = new THREE.MeshBasicMaterial({
@@ -321,14 +321,26 @@ const matTrans  = new THREE.MeshBasicMaterial({
 const chunkGroup = new THREE.Group();
 
 const FACES = [
-  { d: [ 1, 0, 0], c: [[1,0,1],[1,0,0],[1,1,0],[1,1,1]], s: 0.72, k: 'side'   },
-  { d: [-1, 0, 0], c: [[0,0,0],[0,0,1],[0,1,1],[0,1,0]], s: 0.72, k: 'side'   },
-  { d: [ 0, 1, 0], c: [[0,1,1],[1,1,1],[1,1,0],[0,1,0]], s: 1.00, k: 'top'    },
-  { d: [ 0,-1, 0], c: [[0,0,0],[1,0,0],[1,0,1],[0,0,1]], s: 0.50, k: 'bottom' },
-  { d: [ 0, 0, 1], c: [[0,0,1],[1,0,1],[1,1,1],[0,1,1]], s: 0.86, k: 'side'   },
-  { d: [ 0, 0,-1], c: [[1,0,0],[0,0,0],[0,1,0],[1,1,0]], s: 0.86, k: 'side'   }
+  { d: [ 1, 0, 0], c: [[1,0,1],[1,0,0],[1,1,0],[1,1,1]], s: 0.72, k: 0 },
+  { d: [-1, 0, 0], c: [[0,0,0],[0,0,1],[0,1,1],[0,1,0]], s: 0.72, k: 0 },
+  { d: [ 0, 1, 0], c: [[0,1,1],[1,1,1],[1,1,0],[0,1,0]], s: 1.00, k: 1 },
+  { d: [ 0,-1, 0], c: [[0,0,0],[1,0,0],[1,0,1],[0,0,1]], s: 0.50, k: 2 },
+  { d: [ 0, 0, 1], c: [[0,0,1],[1,0,1],[1,1,1],[0,1,1]], s: 0.86, k: 0 },
+  { d: [ 0, 0,-1], c: [[1,0,0],[0,0,0],[0,1,0],[1,1,0]], s: 0.86, k: 0 }
 ];
 const FACE_UV = [[0,0],[1,0],[1,1],[0,1]];
+
+/* Предвычисленные UV для всех 16 тайлов: [u0, u1, v0, v1] */
+const TILE_UV = new Array(ACOLS * AROWS);
+for (let t = 0; t < TILE_UV.length; t++) {
+  const tc = t % ACOLS, tr = (t / ACOLS) | 0;
+  TILE_UV[t] = [
+    tc / ACOLS,
+    (tc + 1) / ACOLS,
+    1 - (tr + 1) / AROWS,
+    1 - tr / AROWS
+  ];
+}
 
 const chunks = new Map();
 
@@ -361,7 +373,7 @@ function buildChunk(cx, cz) {
         const b = world[IDX(x, y, z)];
         if (b === 0) continue;
         const def = BLOCKS[b];
-        const isT = !!def.transparent;
+        const isT = def.transparent === true;
         const D = isT ? T : O;
 
         for (let fi = 0; fi < 6; fi++) {
@@ -371,21 +383,23 @@ function buildChunk(cx, cz) {
           if (isT) {
             if (nb !== 0) continue;
           } else {
-            if (nb !== 0 && !BLOCKS[nb].transparent) continue;
+            if (nb !== 0 && !BLOCK_TRANSPARENT[nb]) continue;
           }
 
-          const tile = f.k === 'top' ? def.top : (f.k === 'bottom' ? def.bottom : def.side);
-          const tc = tile % ACOLS, tr = (tile / ACOLS) | 0;
-          const u0 = tc / ACOLS, u1 = (tc + 1) / ACOLS;
-          const v0 = 1 - (tr + 1) / AROWS, v1 = 1 - tr / AROWS;
+          const tile = f.k === 1 ? def.top : (f.k === 2 ? def.bottom : def.side);
+          const uv = TILE_UV[tile];
+          const u0 = uv[0], u1 = uv[1], v0 = uv[2], v1 = uv[3];
+          const du = u1 - u0, dv = v1 - v0;
 
           const base = D.p.length / 3;
+          const fv = f.c;
+          const fs = f.s;
           for (let vi = 0; vi < 4; vi++) {
-            const cv = f.c[vi];
+            const cv = fv[vi];
             D.p.push(x + cv[0], y + cv[1], z + cv[2]);
-            const uv = FACE_UV[vi];
-            D.u.push(u0 + uv[0] * (u1 - u0), v0 + uv[1] * (v1 - v0));
-            D.c.push(f.s, f.s, f.s);
+            const fuv = FACE_UV[vi];
+            D.u.push(u0 + fuv[0] * du, v0 + fuv[1] * dv);
+            D.c.push(fs, fs, fs);
           }
           D.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
         }
@@ -439,22 +453,11 @@ function rebuildAll() {
   buildAllChunks();
 }
 
-/* ============================================================
-   8. УПРАВЛЕНИЕ ВИДИМОСТЬЮ ЧАНКОВ (как render distance в MC)
-   ------------------------------------------------------------
-   Скрывает чанки, чей центр дальше radius блоков от игрока.
-   Так как фон и туман совпадают, дальние чанки плавно
-   исчезают в дымке.
-   ============================================================ */
 function updateChunkVisibility(px, pz, radius) {
   const r2 = radius * radius;
-  chunks.forEach(function (c, key) {
-    const parts = key.split(',');
-    const cx = parseInt(parts[0], 10);
-    const cz = parseInt(parts[1], 10);
-    // центр чанка
-    const centerX = cx * CS + CS * 0.5;
-    const centerZ = cz * CS + CS * 0.5;
+  chunks.forEach(function (c) {
+    const centerX = c.opaque.userData.cx * CS + CS * 0.5;
+    const centerZ = c.opaque.userData.cz * CS + CS * 0.5;
     const dx = centerX - px;
     const dz = centerZ - pz;
     const visible = (dx * dx + dz * dz) <= r2;
@@ -463,9 +466,6 @@ function updateChunkVisibility(px, pz, radius) {
   });
 }
 
-/* ============================================================
-   9. ЭКСПОРТ
-   ============================================================ */
 MC.SX = SX; MC.SZ = SZ; MC.SY = SY;
 MC.CS = CS; MC.CHX = CHX; MC.CHZ = CHZ;
 MC.world = world;

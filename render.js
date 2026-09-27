@@ -1,28 +1,18 @@
 /* ============================================================
    render.js — движок: сцена, рендерер, камера, облака,
    барьеры по краям мира, текстуры трещин, восстановление
-   WebGL-контекста после его потери.
-
-   Экспортирует через window.RENDER всё, что нужно игровой
-   логике: scene, renderer, camera, crackTextures, crackMat,
-   crackMesh, updateClouds, BASE_FOV/SPRINT_FOV/FLY_FOV,
-   а также флаг isMobile (определяется здесь один раз).
+   WebGL-контекста.
+   + Ленивая генерация текстур трещин (только при первом использовании)
    ============================================================ */
 window.RENDER = (function () {
 'use strict';
 
-/* ---------- раннее обнаружение проблем с зависимостями ---------- */
-if (typeof THREE === 'undefined') {
-  return { ok: false, reason: 'no-three' };
-}
-if (!window.MC || !window.MC.generateWorld) {
-  return { ok: false, reason: 'no-mc' };
-}
+if (typeof THREE === 'undefined') return { ok: false, reason: 'no-three' };
+if (!window.MC || !window.MC.generateWorld) return { ok: false, reason: 'no-mc' };
 
 const MC = window.MC;
-const SX = MC.SX, SZ = MC.SZ, SY = MC.SY;
+const SX = MC.SX, SZ = MC.SZ;
 const chunkGroup = MC.chunkGroup;
-const atlasTexture = MC.atlasTexture;
 
 const isMobile = ('ontouchstart' in window) ||
                  (navigator.maxTouchPoints > 0) ||
@@ -56,7 +46,7 @@ window.addEventListener('resize', () => {
 });
 
 /* ============================================================
-   2. ОБЛАКА (26 процедурных мешей с 8 текстурами)
+   2. ОБЛАКА
    ============================================================ */
 const clouds = (function makeClouds() {
   const group = new THREE.Group();
@@ -111,8 +101,6 @@ const clouds = (function makeClouds() {
         } else if (val > 0.30) {
           d[o] = 255; d[o + 1] = 255; d[o + 2] = 255;
           d[o + 3] = Math.floor(((val - 0.30) / 0.25) * 200);
-        } else {
-          d[o] = 0; d[o + 1] = 0; d[o + 2] = 0; d[o + 3] = 0;
         }
       }
     }
@@ -142,10 +130,17 @@ const clouds = (function makeClouds() {
   function rnd2() { s2 = (Math.imul(s2, 1103515245) + 12345) & 0x7fffffff; return s2 / 0x7fffffff; }
 
   const list = [];
+  const geoCache = new Map();
+  function getCloudGeo(size) {
+    const key = size | 0;
+    let g = geoCache.get(key);
+    if (!g) { g = new THREE.PlaneGeometry(size, size); geoCache.set(key, g); }
+    return g;
+  }
   for (let i = 0; i < COUNT; i++) {
     const mat = materials[Math.floor(rnd2() * materials.length)];
     const size = 40 + rnd2() * 60;
-    const geo = new THREE.PlaneGeometry(size, size);
+    const geo = getCloudGeo(size);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.set(-Math.PI / 2, 0, rnd2() * Math.PI * 2);
     mesh.position.set(
@@ -166,15 +161,16 @@ function updateClouds(dt, pPos) {
   clouds.group.position.x = pPos.x;
   clouds.group.position.z = pPos.z;
   const S = clouds.spread;
-  for (let i = 0; i < clouds.list.length; i++) {
-    const c = clouds.list[i];
+  const list = clouds.list;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
     c.mesh.position.x += c.speed * dt;
     if (c.mesh.position.x > S) c.mesh.position.x -= S * 2;
   }
 }
 
 /* ============================================================
-   3. НЕВИДИМЫЕ БАРЬЕРЫ ПО КРАЯМ МИРА
+   3. БАРЬЕРЫ ПО КРАЯМ МИРА
    ============================================================ */
 (function makeBorderWalls() {
   const H = 40;
@@ -191,7 +187,7 @@ function updateClouds(dt, pPos) {
 })();
 
 /* ============================================================
-   4. ТРЕЩИНЫ (10 стадий)
+   4. ТРЕЩИНЫ (10 стадий) — ЛЕНИВАЯ ГЕНЕРАЦИЯ
    ============================================================ */
 const CRACK_STAGES = 10;
 
@@ -252,8 +248,27 @@ function makeCrackTexture(stage) {
   return tex;
 }
 
-const crackTextures = [];
-for (let s = 1; s <= CRACK_STAGES; s++) crackTextures.push(makeCrackTexture(s));
+/* Ленивая генерация: crackTextures[i] заполняется только при обращении */
+const crackTextures = new Array(CRACK_STAGES);
+function ensureCrackTex(i) {
+  if (!crackTextures[i]) crackTextures[i] = makeCrackTexture(i + 1);
+  return crackTextures[i];
+}
+/* Первая — сразу, она нужна при старте ломания */
+crackTextures[0] = makeCrackTexture(1);
+
+/* Прокси-обёртка: crackTextures[n] автоматически генерирует при обращении */
+const crackTexturesProxy = new Proxy(crackTextures, {
+  get: function (target, prop) {
+    if (typeof prop === 'string') {
+      const n = parseInt(prop, 10);
+      if (!isNaN(n) && n >= 0 && n < CRACK_STAGES && !target[n]) {
+        target[n] = makeCrackTexture(n + 1);
+      }
+    }
+    return target[prop];
+  }
+});
 
 const crackMat = new THREE.MeshBasicMaterial({
   map: crackTextures[0], transparent: true, depthWrite: false,
@@ -266,33 +281,23 @@ scene.add(crackMesh);
 
 /* ============================================================
    5. ВОССТАНОВЛЕНИЕ WebGL-КОНТЕКСТА
-   ------------------------------------------------------------
-   На мобильных при выходе из fullscreen / сворачивании
-   браузер может потерять GPU-контекст. Ловим событие потери
-   и при восстановлении пересобираем все текстуры, чанки и
-   меши мобов.
    ============================================================ */
 function recoverGL() {
   try {
     if (MC.atlasTexture) MC.atlasTexture.needsUpdate = true;
-
     for (let i = 0; i < crackTextures.length; i++) {
-      crackTextures[i].needsUpdate = true;
+      if (crackTextures[i]) crackTextures[i].needsUpdate = true;
     }
-
     for (let i = 0; i < clouds.materials.length; i++) {
       const m = clouds.materials[i];
       if (m.map) m.map.needsUpdate = true;
       m.needsUpdate = true;
     }
-
     if (MC.rebuildAll) MC.rebuildAll();
     if (window.MOBS && window.MOBS.rebuildTextures) window.MOBS.rebuildTextures();
-
     if (renderer.resetState) renderer.resetState();
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.render(scene, camera);
-
     console.log('[render.js] пересборка после потери контекста завершена');
   } catch (e) {
     console.error('[render.js] recoverGL error', e);
@@ -306,7 +311,6 @@ renderer.domElement.addEventListener('webglcontextlost', function (e) {
 
 renderer.domElement.addEventListener('webglcontextrestored', function () {
   console.warn('[render.js] WebGL context restored — планирую пересборку');
-  // Откладываем на следующий кадр, чтобы дать браузеру стабилизироваться
   requestAnimationFrame(function () { recoverGL(); });
 }, false);
 
@@ -317,25 +321,18 @@ document.addEventListener('visibilitychange', function () {
   }
 });
 
-/* ============================================================
-   6. ЭКСПОРТ
-   ============================================================ */
 return {
   ok: true,
   isMobile: isMobile,
-
   scene: scene,
   renderer: renderer,
   camera: camera,
-
   BASE_FOV:   BASE_FOV,
   SPRINT_FOV: SPRINT_FOV,
   FLY_FOV:    FLY_FOV,
-
-  crackTextures: crackTextures,
+  crackTextures: crackTexturesProxy,
   crackMat: crackMat,
   crackMesh: crackMesh,
-
   updateClouds: updateClouds
 };
 
