@@ -3,6 +3,7 @@
    + Анимации: голова с pivot, слежение за игроком (периодически),
      покачивание, поза прыжка
    + Текстуры в стиле Minecraft + живые глаза
+   + FIX: звуки мобов отключаются, когда игра не активна (меню)
    ============================================================ */
 window.MOBS = (function () {
 'use strict';
@@ -17,7 +18,8 @@ if (!window.MC) {
     deserialize: noop, count: function () { return 0; },
     raycast: function () { return null; }, hit: function () { return false; },
     rebuildTextures: noop,
-    isBlockOccupied: function () { return false; }
+    isBlockOccupied: function () { return false; },
+    setMuted: noop
   };
 }
 
@@ -34,6 +36,10 @@ let playerPos = null;
 let lastMobSoundTime = -99999;
 let renderDistBlocks = 6 * CS;
 
+/* Приглушение звуков: когда игрок в меню, звуки мобов не играют */
+let soundsMuted = false;
+function setMuted(v) { soundsMuted = !!v; }
+
 const GRAVITY = 28;
 const JUMP_VELOCITY = 8.6;
 const SOUND_MIN_DIST2 = 15 * 15;
@@ -45,13 +51,13 @@ const LEG_SWING = 0.55;
 const VISIBILITY_MARGIN = 1.0;
 
 /* --- Параметры анимаций головы --- */
-const HEAD_LOOK_RANGE_SQ = 12 * 12;     // радиус, в котором моб может заметить игрока
-const HEAD_MAX_YAW       = 1.15;        // ~66° влево/вправо
-const HEAD_MAX_PITCH     = 0.55;        // ~31° вверх/вниз
-const HEAD_SMOOTH        = 5.5;         // скорость сглаживания
-const HEAD_BOB_Y         = 0.02;        // амплитуда покачивания вверх/вниз
-const HEAD_SWAY          = 0.045;       // амплитуда наклона влево/вправо
-const JUMP_LEG_POSE      = 0.32;        // угол поджатия лап в прыжке
+const HEAD_LOOK_RANGE_SQ = 12 * 12;
+const HEAD_MAX_YAW       = 1.15;
+const HEAD_MAX_PITCH     = 0.55;
+const HEAD_SMOOTH        = 5.5;
+const HEAD_BOB_Y         = 0.02;
+const HEAD_SWAY          = 0.045;
+const JUMP_LEG_POSE      = 0.32;
 
 function cl(v) { return v < 0 ? 0 : v > 255 ? 255 : (v | 0); }
 function fract(v) { return v - Math.floor(v); }
@@ -451,13 +457,6 @@ function makeBox(w, h, d, color, texKey) {
   return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mats);
 }
 
-/* ------------------------------------------------------------
-   ТИПЫ МОБОВ
-   Формат parts: [w, h, d, color, x, y, z, tag, texKey]
-   tag: ''  — статичная часть тела
-        'l' — лапа (в pivot для качания)
-        'h' — часть головы (в headGroup с pivot)
-   ------------------------------------------------------------ */
 const MOB_TYPES = {
   pig: {
     h: 0.9, r: 0.42, speed: 1.4, hp: 10,
@@ -594,11 +593,9 @@ function createMob(type, x, y, z, yaw) {
     legs: built.legs,
     headGroup: built.headGroup,
 
-    /* Текущие значения анимации головы (сглаживаются) */
     headYaw: 0,
     headPitch: 0,
     headBobPhase: Math.random() * Math.PI * 2,
-    /* AI головы: периодически поглядывает на игрока, потом отводит взгляд */
     headLookAtPlayer: false,
     headLookTimer: 1 + Math.random() * 4,
     headGlanceTimer: 0,
@@ -714,6 +711,7 @@ function reactToWall(mob) {
 }
 
 function maybePlaySound(mob) {
+  if (soundsMuted) return;
   if (!playerPos || !window.SFX) return;
   if (mob.panicTimer > 0) return;
 
@@ -751,10 +749,10 @@ function hitMob(mob, damage, fromX, fromZ) {
   if (mob.hp <= 0) {
     mob.hp = 0;
     mob.dead = true;
-    if (window.SFX && window.SFX.mobDeath) window.SFX.mobDeath(mob.type);
+    if (!soundsMuted && window.SFX && window.SFX.mobDeath) window.SFX.mobDeath(mob.type);
     return true;
   }
-  if (window.SFX && window.SFX.mobHurt) window.SFX.mobHurt(mob.type);
+  if (!soundsMuted && window.SFX && window.SFX.mobHurt) window.SFX.mobHurt(mob.type);
   return false;
 }
 
@@ -861,13 +859,6 @@ function updateMobVisibility(mob) {
   }
 }
 
-/* ------------------------------------------------------------
-   Анимация головы.
-   Моб НЕ смотрит постоянно на игрока. Вместо этого у него
-   периодический «интерес»: раз в 2–7 секунд моб решает —
-   взглянуть на игрока (≈45% если тот рядом) или отвести взгляд
-   в случайную сторону. Взгляд плавно сглаживается.
-   ------------------------------------------------------------ */
 function animateHead(mob, dt) {
   const hg = mob.headGroup;
   if (!hg) return;
@@ -875,7 +866,6 @@ function animateHead(mob, dt) {
   let targetYaw = 0;
   let targetPitch = 0;
 
-  /* Игрок рядом? */
   let playerNearby = false;
   let relYawToPlayer = 0;
   let relPitchToPlayer = 0;
@@ -907,17 +897,13 @@ function animateHead(mob, dt) {
     }
   }
 
-  /* --- AI головы --- */
   if (mob.panicTimer > 0) {
-    /* В панике голова смотрит туда, куда тело бежит */
     mob.headLookAtPlayer = false;
     targetYaw = 0;
     targetPitch = 0;
   } else if (mob.headLookAtPlayer) {
-    /* Сейчас смотрит на игрока — держим, пока не истечёт таймер */
     mob.headGlanceTimer -= dt;
     if (!playerNearby || mob.headGlanceTimer <= 0) {
-      /* Игрок ушёл или пора отвести взгляд */
       mob.headLookAtPlayer = false;
       mob.headLookTimer = 2 + Math.random() * 5;
       const sign = Math.random() < 0.5 ? -1 : 1;
@@ -930,17 +916,14 @@ function animateHead(mob, dt) {
       targetPitch = relPitchToPlayer;
     }
   } else {
-    /* Не смотрит на игрока — ждём своего часа */
     mob.headLookTimer -= dt;
     if (mob.headLookTimer <= 0) {
       if (playerNearby && Math.random() < 0.45) {
-        /* Решил глянуть */
         mob.headLookAtPlayer = true;
         mob.headGlanceTimer = 1.2 + Math.random() * 2.5;
         targetYaw = relYawToPlayer;
         targetPitch = relPitchToPlayer;
       } else {
-        /* Снова не смотрит — выбираем новое направление «в сторону» */
         mob.headLookTimer = 2 + Math.random() * 5;
         const sign = Math.random() < 0.5 ? -1 : 1;
         mob.headIdleYaw = sign * (0.15 + Math.random() * 0.55);
@@ -951,7 +934,6 @@ function animateHead(mob, dt) {
         targetPitch = mob.headIdlePitch;
       }
     } else {
-      /* Ведём голову к текущей «праздной» цели */
       targetYaw = mob.headIdleYaw;
       targetPitch = mob.headIdlePitch;
     }
@@ -961,7 +943,6 @@ function animateHead(mob, dt) {
   mob.headYaw   += (targetYaw   - mob.headYaw)   * k;
   mob.headPitch += (targetPitch - mob.headPitch) * k;
 
-  /* Покачивание при ходьбе */
   let bobY = 0;
   let sway = 0;
   if (mob.walking && mob.onGround && mob.panicTimer <= 0) {
@@ -1083,12 +1064,6 @@ function updateMob(mob, dt) {
   mob.lastX = mob.pos.x;
   mob.lastZ = mob.pos.z;
 
-  /* ============================================================
-     АНИМАЦИЯ ЛАП
-     1. В прыжке — поджимаются
-     2. При ходьбе — попарно качаются
-     3. В покое — плавно возвращаются в исходное
-     ============================================================ */
   if (!mob.onGround) {
     const rising = mob.vel.y > 0;
     const frontPose = rising ? -JUMP_LEG_POSE : -JUMP_LEG_POSE * 0.4;
@@ -1121,7 +1096,6 @@ function updateMob(mob, dt) {
   mob.group.position.copy(mob.pos);
   mob.group.rotation.y = mob.yaw;
 
-  /* --- Анимация головы --- */
   animateHead(mob, dt);
 
   updateMobVisibility(mob);
@@ -1263,7 +1237,8 @@ return {
   raycast: raycast,
   hit: hit,
   rebuildTextures: rebuildTextures,
-  isBlockOccupied: isBlockOccupied
+  isBlockOccupied: isBlockOccupied,
+  setMuted: setMuted
 };
 
 })();

@@ -76,26 +76,102 @@
 </div>
 
 <div id="menu">
-  <h1>MINE<span>CRAFT</span></h1>
-  <div class="sub">воксельный мир в браузере</div>
-  <div class="controls">
-    <div>Движение</div><div><b>W A S D</b> / <b>← ↑ ↓ →</b></div>
-    <div>Прыжок</div><div><b>Пробел</b></div>
-    <div>Бег</div><div><b>Ctrl</b> / <b>двойной W</b> / <b>двойная ↑</b></div>
-    <div>Присесть</div><div><b>Shift</b> (удерживать)</div>
-    <div>Режим игры</div><div><b>G</b> — выживание / креатив</div>
-    <div>Полёт</div><div><b>F</b> — только в Креативе</div>
-    <div>Вверх / вниз в полёте</div><div><b>Пробел</b> / <b>Shift</b></div>
-    <div>Сломать блок</div><div><b>ЛКМ</b> (удерживать)</div>
-    <div>Поставить блок</div><div><b>ПКМ</b></div>
-    <div>Выбор блока</div><div><b>1–9</b>, <b>0</b>, <b>−</b> / колесо</div>
-    <div>Настройки</div><div><b>O</b></div>
-    <div>Выйти из игры</div><div><b>Esc</b></div>
+  <div class="menu-bg">
+    <div class="menu-cloud c1"></div>
+    <div class="menu-cloud c2"></div>
+    <div class="menu-cloud c3"></div>
+    <div class="menu-cloud c4"></div>
+    <div class="menu-cloud c5"></div>
+    <div class="menu-cloud c6"></div>
   </div>
-  <div class="touch-note">На телефоне: джойстик слева, кнопки справа.<br>Свайп по экрану — обзор. Полёт — только в Креативе.</div>
-  <button class="btn" id="startBtn">ИГРАТЬ</button>
-  <div class="row">
-    <button class="btn sec" id="newBtn">Новый мир</button>
+
+  <div class="menu-content">
+    <div class="menu-logo">
+      <h1>MINE<span>CRAFT</span></h1>
+      <div class="sub">воксельный мир в браузере</div>
+    </div>
+
+    <div class="menu-cards">
+      <div class="menu-card">
+        <div class="card-title">Управление</div>
+        <div class="controls">
+          <div class="ctrl-row"><span class="ctrl-key">W A S D</span><span class="ctrl-desc">движение</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">← ↑ ↓ →</span><span class="ctrl-desc">движение</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">Пробел</span><span class="ctrl-desc">прыжок</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">Ctrl</span><span class="ctrl-desc">бег</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">Shift</span><span class="ctrl-desc">присесть</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">F</span><span class="ctrl-desc">полёт (креатив)</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">G</span><span class="ctrl-desc">режим игры</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">ЛКМ / ПКМ</span><span class="ctrl-desc">ломать / ставить</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">1–9 · 0 · −</span><span class="ctrl-desc">выбор блока</span></div>
+          <div class="ctrl-row"><span class="ctrl-key">O</span><span class="ctrl-desc">настройки</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="menu-buttons">
+      <button class="btn primary" id="startBtn">
+        <span class="btn-icon">▶</span>
+        <span>ИГРАТЬ</span>
+      </button>
+      <button class="btn secondary" id="worldsBtn">
+        <span class="btn-icon">🌍</span>
+        <span>Мои миры</span>
+      </button>
+    </div>
+
+    <div class="touch-note">
+      На телефоне: джойстик слева, кнопки справа.<br>
+      Свайп по экрану — обзор. Полёт — только в Креативе.
+    </div>
+
+    <div class="menu-footer">
+      <span class="menu-version">V2.5-V3.TEST MENU</span>
+      <span class="menu-hint">Minecraft Web · HTML5 + WebGL</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     ПАНЕЛЬ СПИСКА МИРОВ
+     ============================================================ -->
+<div id="worlds-panel">
+  <div class="worlds-header">
+    <h2>Мои миры</h2>
+    <button class="worlds-close" id="worldsClose" aria-label="Закрыть">✕</button>
+  </div>
+  <div class="worlds-list" id="worldsList"></div>
+  <button class="btn primary worlds-add" id="worldsAdd">
+    <span class="btn-icon">＋</span>
+    <span>Создать мир</span>
+  </button>
+</div>
+
+<!-- ============================================================
+     МОДАЛКА ПЕРЕИМЕНОВАНИЯ
+     ============================================================ -->
+<div id="worlds-rename">
+  <div class="modal-box">
+    <h3>Переименовать мир</h3>
+    <input type="text" id="worldsRenameInput" maxlength="32" placeholder="Название мира">
+    <div class="modal-actions">
+      <button class="btn secondary" id="worldsRenameCancel">Отмена</button>
+      <button class="btn primary" id="worldsRenameOk">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     МОДАЛКА УДАЛЕНИЯ
+     ============================================================ -->
+<div id="worlds-delete">
+  <div class="modal-box">
+    <h3>Удалить мир?</h3>
+    <div class="modal-sub">Мир «<span id="worldsDeleteName"></span>» будет удалён навсегда.</div>
+    <div class="modal-actions">
+      <button class="btn secondary" id="worldsDeleteCancel">Отмена</button>
+      <button class="btn danger" id="worldsDeleteOk">Удалить</button>
+    </div>
   </div>
 </div>
 

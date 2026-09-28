@@ -11,6 +11,9 @@
    + FIX: в креативе ломается только один блок за нажатие
    + FIX: HP скрыто в креативе
    + Солнце (updateSun)
+   + МЕНЕДЖЕР МИРОВ: список, создание, удаление, переименование
+   + FIX: пробел и другие клавиши работают в полях ввода
+   + FIX: звуки мобов отключены в главном меню / настройках
    ============================================================ */
 (function () {
 'use strict';
@@ -44,7 +47,8 @@ const MC = window.MC;
 const SX = MC.SX, SZ = MC.SZ, SY = MC.SY;
 const CHX = MC.CHX, CHZ = MC.CHZ;
 const CS = MC.CS;
-const world = MC.world, IDX = MC.IDX, SAVE_KEY = MC.SAVE_KEY;
+const world = MC.world, IDX = MC.IDX;
+const LEGACY_SAVE_KEY = MC.SAVE_KEY;
 const BLOCKS = MC.BLOCKS, ACOLS = MC.ACOLS;
 const atlasCanvas = MC.atlasCanvas;
 const isSolid = MC.isSolid, highestAt = MC.highestAt;
@@ -66,7 +70,7 @@ const crackMesh = R.crackMesh;
 const updateClouds = R.updateClouds;
 const updateSun = R.updateSun;
 
-const GAME_VERSION = '2.5-V3.TEST';
+const GAME_VERSION = 'V2.5-V3.TEST MENU';
 
 const HARDNESS = {
   1: 0.55, 2: 0.45, 3: 1.30, 4: 1.10, 5: 0.45,
@@ -81,6 +85,128 @@ let   eyeBlend    = 0;
 /* Лимит FPS */
 const FPS_OPTIONS = [15, 30, 60, 90, 120, 144, 165, 180, 240, 0];
 const FPS_LABELS  = ['15', '30', '60', '90', '120', '144', '165', '180', '240', '∞'];
+
+/* ============================================================
+   МЕНЕДЖЕР МИРОВ
+   ============================================================ */
+const WORLDS_LIST_KEY = 'mcweb_worlds_v1';
+const ACTIVE_WORLD_KEY = 'mcweb_active_world';
+const WORLD_DATA_PREFIX = 'mcweb_world_';
+
+function loadWorldsList() {
+  try {
+    const raw = localStorage.getItem(WORLDS_LIST_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+function saveWorldsList(list) {
+  try { localStorage.setItem(WORLDS_LIST_KEY, JSON.stringify(list)); } catch (e) {}
+}
+function getActiveWorldId() {
+  try { return localStorage.getItem(ACTIVE_WORLD_KEY) || ''; } catch (e) { return ''; }
+}
+function setActiveWorldId(id) {
+  try { localStorage.setItem(ACTIVE_WORLD_KEY, id || ''); } catch (e) {}
+}
+function getWorldSaveKey(id) {
+  return WORLD_DATA_PREFIX + id;
+}
+function generateWorldId() {
+  return 'w_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+}
+function getActiveWorld() {
+  const id = getActiveWorldId();
+  const list = loadWorldsList();
+  return list.find(function (w) { return w.id === id; }) || null;
+}
+function ensureActiveWorld() {
+  let list = loadWorldsList();
+  let activeId = getActiveWorldId();
+
+  /* Миграция старого одиночного сейва (если есть) */
+  if (list.length === 0) {
+    const id = generateWorldId();
+    const newWorld = {
+      id: id,
+      name: 'Мой мир',
+      seed: (Math.random() * 1e9) | 0,
+      created: Date.now(),
+      lastPlayed: Date.now()
+    };
+    let legacy = null;
+    try { legacy = localStorage.getItem(LEGACY_SAVE_KEY); } catch (e) {}
+    if (legacy) {
+      try {
+        localStorage.setItem(getWorldSaveKey(id), legacy);
+        localStorage.removeItem(LEGACY_SAVE_KEY);
+        try {
+          const parsed = JSON.parse(legacy);
+          if (parsed && typeof parsed.seed === 'number') newWorld.seed = parsed.seed;
+        } catch (e) {}
+      } catch (e) {}
+    }
+    list = [newWorld];
+    saveWorldsList(list);
+    setActiveWorldId(id);
+    return newWorld;
+  }
+
+  let active = list.find(function (w) { return w.id === activeId; });
+  if (!active) {
+    active = list[0];
+    setActiveWorldId(active.id);
+  }
+  return active;
+}
+function createWorld(name) {
+  const list = loadWorldsList();
+  const id = generateWorldId();
+  const seed = (Math.random() * 1e9) | 0;
+  const w = {
+    id: id,
+    name: (name || ('Мир ' + (list.length + 1))).trim().slice(0, 32) || 'Без имени',
+    seed: seed,
+    created: Date.now(),
+    lastPlayed: Date.now()
+  };
+  list.push(w);
+  saveWorldsList(list);
+  setActiveWorldId(id);
+  return w;
+}
+function deleteWorld(id) {
+  const list = loadWorldsList();
+  const idx = list.findIndex(function (w) { return w.id === id; });
+  if (idx < 0) return false;
+  list.splice(idx, 1);
+  saveWorldsList(list);
+  try { localStorage.removeItem(getWorldSaveKey(id)); } catch (e) {}
+  if (getActiveWorldId() === id) {
+    setActiveWorldId(list.length > 0 ? list[0].id : '');
+  }
+  return true;
+}
+function renameWorld(id, newName) {
+  const list = loadWorldsList();
+  const w = list.find(function (x) { return x.id === id; });
+  if (!w) return false;
+  w.name = String(newName || '').trim().slice(0, 32) || 'Без имени';
+  saveWorldsList(list);
+  return true;
+}
+function touchWorld(id) {
+  const list = loadWorldsList();
+  const w = list.find(function (x) { return x.id === id; });
+  if (!w) return;
+  w.lastPlayed = Date.now();
+  saveWorldsList(list);
+}
+function getCurrentSaveKey() {
+  const id = getActiveWorldId();
+  return id ? getWorldSaveKey(id) : '';
+}
 
 const SFX = (function () {
   const s = window.SFX;
@@ -107,6 +233,7 @@ const MOBS = (function () {
   if (m && m.raycast && m.hit) {
     if (!m.rebuildTextures) m.rebuildTextures = function () {};
     if (!m.isBlockOccupied) m.isBlockOccupied = function () { return false; };
+    if (!m.setMuted) m.setMuted = function () {};
     return m;
   }
   console.warn('[game.js] mobs.js не загрузился полностью — мобы отключены');
@@ -122,7 +249,8 @@ const MOBS = (function () {
     raycast: function () { return null; },
     hit: function () { return false; },
     rebuildTextures: noop,
-    isBlockOccupied: function () { return false; }
+    isBlockOccupied: function () { return false; },
+    setMuted: noop
   };
 })();
 
@@ -252,21 +380,18 @@ const firstHint = settingsPanel.querySelector('.settings-hint');
 if (firstHint) settingsPanel.insertBefore(modeRow, firstHint);
 else settingsPanel.appendChild(modeRow);
 
-/* Кнопка полёта: видна только в креативе (на мобильных). */
 function updateMobileFlyBtn() {
   if (!isMobile) return;
   const bf = document.getElementById('btn-fly');
   if (bf) bf.style.display = (gameMode === 'creative') ? 'flex' : 'none';
 }
 
-/* HP скрывается в креативе и возвращается в выживании. */
 function updateHealthVisibility() {
   const h = document.getElementById('health');
   if (!h) return;
   h.style.display = (gameMode === 'creative') ? 'none' : 'flex';
 }
 
-/* Смена режима. silent = true — без подсказки и без авто-полёта. */
 function setGameMode(mode, silent) {
   if (mode !== 'creative') mode = 'survival';
   const prev = gameMode;
@@ -346,7 +471,7 @@ document.addEventListener('webkitfullscreenchange', function () {
   fsCheckbox.checked = isFullscreen();
 });
 
-/* --- Открытие/закрытие панели --- */
+/* --- Открытие/закрытие панели настроек --- */
 let wasInGameBeforeSettings = false;
 let panelJustDragged = false;
 
@@ -640,7 +765,14 @@ const DOUBLE_TAP_MS = 280;
 const lastTap = { KeyW: 0, ArrowUp: 0 };
 const doubleLock = { KeyW: false, ArrowUp: false };
 
-/* Полёт разрешён только в креативе */
+/* Проверка: фокус в поле ввода (инпут/текстареа/contenteditable) */
+function isInputFocused() {
+  const ae = document.activeElement;
+  if (!ae) return false;
+  const tag = ae.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || ae.isContentEditable;
+}
+
 function toggleFly() {
   if (dead) return;
   if (gameMode !== 'creative') {
@@ -704,6 +836,10 @@ document.addEventListener('mousemove', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  /* Не перехватываем клавиши, если фокус в поле ввода
+     (переименование мира, текстовые поля и т. д.) */
+  if (isInputFocused()) return;
+
   if (dead) return;
   if (e.code === 'KeyO' && !e.repeat) {
     e.preventDefault();
@@ -833,7 +969,7 @@ if (isMobile) {
 
   function isUIElement(target) {
     if (!target) return false;
-    return !!(target.closest && target.closest('#joystick, #mob-buttons, #btn-menu, #btn-settings, #settings-panel, #hotbar, #menu, #death'));
+    return !!(target.closest && target.closest('#joystick, #mob-buttons, #btn-menu, #btn-settings, #settings-panel, #hotbar, #menu, #death, #worlds-panel, #worlds-rename, #worlds-delete'));
   }
 
   document.addEventListener('touchstart', function (e) {
@@ -1044,7 +1180,6 @@ function raycastBlock() {
 
 let currentTarget = null;
 const breaking = { active: false, target: null, progress: 0, stage: 0 };
-/* Флаг: в креативе мы уже сломали блок в текущем нажатии ЛКМ */
 let creativeBrokeThisClick = false;
 
 function stopBreaking() {
@@ -1187,7 +1322,7 @@ function showHint(text) {
 const infoEl = document.getElementById('info');
 
 /* ============================================================
-   8. СОХРАНЕНИЕ (RLE)
+   8. СОХРАНЕНИЕ (RLE) — с поддержкой нескольких миров
    ============================================================ */
 function u8ToB64(u8) {
   let s = '';
@@ -1235,8 +1370,10 @@ let worldSeed = 1337;
 
 function saveGame() {
   try {
+    const key = getCurrentSaveKey();
+    if (!key) return;
     const compressed = rleEncode(world);
-    localStorage.setItem(SAVE_KEY, JSON.stringify({
+    localStorage.setItem(key, JSON.stringify({
       v: 2, rle: 1,
       seed: worldSeed,
       w: u8ToB64(compressed),
@@ -1246,13 +1383,16 @@ function saveGame() {
       mode: gameMode,
       mobs: MOBS.serialize()
     }));
+    touchWorld(getActiveWorldId());
     dirty = false;
   } catch (e) { console.warn('Не удалось сохранить:', e); }
 }
 
 function loadGame() {
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
+    const key = getCurrentSaveKey();
+    if (!key) return false;
+    const raw = localStorage.getItem(key);
     if (!raw) return false;
     const d = JSON.parse(raw);
     const bytes = b64ToU8(d.w);
@@ -1284,31 +1424,223 @@ function loadGame() {
   } catch (e) { console.warn('Не удалось загрузить:', e); return false; }
 }
 
-function newWorld() {
-  worldSeed = (Math.random() * 1e9) | 0;
-  generateWorld(worldSeed);
-  rebuildAll();
-  MOBS.clear();
-  respawn();
-  yaw = 0; pitch = 0;
-  hp = MAX_HP;
-  refreshHearts();
-  MOBS.spawnInitial(40);
-  saveGame();
-  applyRenderDistance();
-  showHint('Создан новый мир');
+/* ============================================================
+   9. UI СПИСКА МИРОВ
+   ============================================================ */
+const worldsPanel = document.getElementById('worlds-panel');
+const worldsListEl = document.getElementById('worldsList');
+const worldsRename = document.getElementById('worlds-rename');
+const worldsDelete = document.getElementById('worlds-delete');
+
+let _renameTargetId = null;
+let _deleteTargetId = null;
+
+function openWorldsPanel() {
+  renderWorldsList();
+  if (worldsPanel) worldsPanel.classList.add('open');
+}
+function closeWorldsPanel() {
+  if (worldsPanel) worldsPanel.classList.remove('open');
 }
 
-document.getElementById('newBtn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  newWorld();
-  lockPointer();
-});
+function playWorld(id) {
+  setActiveWorldId(id);
+  location.reload();
+}
+
+function renderWorldsList() {
+  if (!worldsListEl) return;
+  const list = loadWorldsList();
+  const activeId = getActiveWorldId();
+  worldsListEl.innerHTML = '';
+
+  if (list.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'worlds-empty';
+    empty.textContent = 'Нет миров. Создайте первый!';
+    worldsListEl.appendChild(empty);
+    return;
+  }
+
+  list.sort(function (a, b) {
+    if (a.id === activeId) return -1;
+    if (b.id === activeId) return 1;
+    return (b.lastPlayed || 0) - (a.lastPlayed || 0);
+  });
+
+  list.forEach(function (w) {
+    const card = document.createElement('div');
+    card.className = 'world-card' + (w.id === activeId ? ' active' : '');
+
+    const date = new Date(w.lastPlayed || w.created || Date.now());
+    const dateStr = date.toLocaleDateString('ru-RU') + ' · ' +
+                    date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
+    const icon = document.createElement('div');
+    icon.className = 'world-icon';
+    icon.textContent = w.id === activeId ? '🌟' : '🌍';
+
+    const info = document.createElement('div');
+    info.className = 'world-info';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'world-name';
+    nameEl.textContent = w.name;
+    const meta = document.createElement('div');
+    meta.className = 'world-meta';
+    meta.textContent = dateStr;
+    info.appendChild(nameEl);
+    info.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'world-actions';
+
+    const btnPlay = document.createElement('button');
+    btnPlay.className = 'world-btn play';
+    btnPlay.title = 'Играть';
+    btnPlay.textContent = '▶';
+    btnPlay.addEventListener('click', function (e) {
+      e.stopPropagation();
+      playWorld(w.id);
+    });
+
+    const btnRename = document.createElement('button');
+    btnRename.className = 'world-btn rename';
+    btnRename.title = 'Переименовать';
+    btnRename.textContent = '✏';
+    btnRename.addEventListener('click', function (e) {
+      e.stopPropagation();
+      openRenameDialog(w.id);
+    });
+
+    const btnDelete = document.createElement('button');
+    btnDelete.className = 'world-btn delete';
+    btnDelete.title = 'Удалить';
+    btnDelete.textContent = '🗑';
+    btnDelete.addEventListener('click', function (e) {
+      e.stopPropagation();
+      openDeleteDialog(w.id);
+    });
+
+    actions.appendChild(btnPlay);
+    actions.appendChild(btnRename);
+    actions.appendChild(btnDelete);
+
+    card.appendChild(icon);
+    card.appendChild(info);
+    card.appendChild(actions);
+
+    card.addEventListener('dblclick', function () { playWorld(w.id); });
+
+    worldsListEl.appendChild(card);
+  });
+}
+
+function openRenameDialog(id) {
+  const list = loadWorldsList();
+  const w = list.find(function (x) { return x.id === id; });
+  if (!w) return;
+  _renameTargetId = id;
+  const input = document.getElementById('worldsRenameInput');
+  input.value = w.name;
+  worldsRename.classList.add('open');
+  setTimeout(function () { input.focus(); input.select(); }, 60);
+}
+function closeRenameDialog() {
+  _renameTargetId = null;
+  if (worldsRename) worldsRename.classList.remove('open');
+}
+
+function openDeleteDialog(id) {
+  const list = loadWorldsList();
+  const w = list.find(function (x) { return x.id === id; });
+  if (!w) return;
+  _deleteTargetId = id;
+  document.getElementById('worldsDeleteName').textContent = w.name;
+  worldsDelete.classList.add('open');
+}
+function closeDeleteDialog() {
+  _deleteTargetId = null;
+  if (worldsDelete) worldsDelete.classList.remove('open');
+}
+
+/* --- Обработчики UI миров --- */
+const worldsBtn = document.getElementById('worldsBtn');
+if (worldsBtn) {
+  worldsBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    openWorldsPanel();
+  });
+}
+const worldsCloseBtn = document.getElementById('worldsClose');
+if (worldsCloseBtn) worldsCloseBtn.addEventListener('click', closeWorldsPanel);
+
+const worldsAddBtn = document.getElementById('worldsAdd');
+if (worldsAddBtn) {
+  worldsAddBtn.addEventListener('click', function () {
+    const list = loadWorldsList();
+    const name = 'Мир ' + (list.length + 1);
+    const w = createWorld(name);
+    playWorld(w.id);
+  });
+}
+
+/* Переименование */
+const worldsRenameOk = document.getElementById('worldsRenameOk');
+const worldsRenameCancel = document.getElementById('worldsRenameCancel');
+const worldsRenameInput = document.getElementById('worldsRenameInput');
+
+if (worldsRenameOk) {
+  worldsRenameOk.addEventListener('click', function () {
+    if (_renameTargetId) {
+      const v = worldsRenameInput.value;
+      renameWorld(_renameTargetId, v);
+      closeRenameDialog();
+      renderWorldsList();
+    }
+  });
+}
+if (worldsRenameCancel) {
+  worldsRenameCancel.addEventListener('click', closeRenameDialog);
+}
+if (worldsRenameInput) {
+  worldsRenameInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); worldsRenameOk.click(); }
+    if (e.key === 'Escape') { e.preventDefault(); closeRenameDialog(); }
+  });
+}
+
+/* Удаление */
+const worldsDeleteOk = document.getElementById('worldsDeleteOk');
+const worldsDeleteCancel = document.getElementById('worldsDeleteCancel');
+
+if (worldsDeleteOk) {
+  worldsDeleteOk.addEventListener('click', function () {
+    if (!_deleteTargetId) return;
+    const wasActive = _deleteTargetId === getActiveWorldId();
+    deleteWorld(_deleteTargetId);
+    closeDeleteDialog();
+
+    if (wasActive) {
+      const list = loadWorldsList();
+      if (list.length > 0) {
+        location.reload();
+      } else {
+        const w = createWorld('Мой мир');
+        playWorld(w.id);
+      }
+    } else {
+      renderWorldsList();
+    }
+  });
+}
+if (worldsDeleteCancel) {
+  worldsDeleteCancel.addEventListener('click', closeDeleteDialog);
+}
 
 window.addEventListener('beforeunload', function () { if (dirty) saveGame(); });
 
 /* ============================================================
-   9. ИНИЦИАЛИЗАЦИЯ
+   10. ИНИЦИАЛИЗАЦИЯ
    ============================================================ */
 const loadingEl = document.getElementById('loading');
 const loadingTextEl = loadingEl ? loadingEl.querySelector('div') : null;
@@ -1335,6 +1667,11 @@ function buildChunksAsync(onProgress, onDone) {
 }
 
 (function init() {
+  const activeWorld = ensureActiveWorld();
+  if (activeWorld && typeof activeWorld.seed === 'number') {
+    worldSeed = activeWorld.seed;
+  }
+
   showLoading(true);
   setLoadingText('Загрузка сохранения…');
 
@@ -1383,7 +1720,8 @@ function buildChunksAsync(onProgress, onDone) {
             highestAirY = player.pos.y;
             applyRenderDistance();
             showLoading(false);
-            console.log('[game.js] init OK. Игрок:', player.pos.toArray(),
+            console.log('[game.js] init OK. Мир:', activeWorld ? activeWorld.name : '(нет)',
+                        '| Игрок:', player.pos.toArray(),
                         '| мобов:', MOBS.count(), '| hp:', hp,
                         '| режим:', gameMode,
                         '| renderDist:', settings.renderDist,
@@ -1399,7 +1737,7 @@ function buildChunksAsync(onProgress, onDone) {
 })();
 
 /* ============================================================
-   10. ГЛАВНЫЙ ЦИКЛ
+   11. ГЛАВНЫЙ ЦИКЛ
    ============================================================ */
 const _fwd = new THREE.Vector3();
 const _rgt = new THREE.Vector3();
@@ -1433,6 +1771,9 @@ function update(dt) {
   if (attackTimer > 0) attackTimer -= dt;
   updateClouds(dt, player.pos);
   updateSun(dt, player.pos);
+
+  /* Приглушаем звуки мобов, когда игра не активна (меню, настройки) */
+  if (MOBS.setMuted) MOBS.setMuted(!locked);
 
   if (!dead) {
     const sinYaw = Math.sin(yaw);
