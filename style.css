@@ -229,6 +229,11 @@ body.mobile canvas{touch-action:none}
   justify-content:center;
 }
 
+/* Панель настроек в главном меню должна быть поверх всего */
+#settings-panel.menu-overlay{
+  z-index:60;
+}
+
 .btn{
   display:inline-flex;
   align-items:center;

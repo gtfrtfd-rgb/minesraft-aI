@@ -16,6 +16,7 @@
    + FIX: звуки мобов отключены в главном меню / настройках
    + МЕНЮ ПАУЗЫ (Esc на ПК, ☰ на мобильных)
    + FIX: на телефоне сразу включается полноэкранный режим
+   + КНОПКА НАСТРОЕК В ГЛАВНОМ МЕНЮ
    ============================================================ */
 (function () {
 'use strict';
@@ -259,14 +260,8 @@ MOBS.init(scene);
 
 /* ============================================================
    ПОЛНОЭКРАННЫЙ РЕЖИМ (мобильные)
-   ------------------------------------------------------------
-   Вызываем при первом жесте — иначе браузер заблокирует.
-   iOS Safari: полноэкранный API работает только для видео,
-   поэтому для iOS остаётся только скрыть адресную строку
-   через scrollTo — это визуально тоже «полный экран».
    ============================================================ */
 function enterFullscreenSafe() {
-  /* Прячем адресную строку (работает на iOS и Android) */
   try { window.scrollTo(0, 1); } catch (e) {}
 
   const el = document.documentElement;
@@ -285,8 +280,6 @@ function enterFullscreenSafe() {
   } catch (e) {}
 }
 
-/* Одноразовый перехват первого касания для мобильных:
-   срабатывает даже до нажатия кнопки ИГРАТЬ */
 if (isMobile) {
   let _fsTriggered = false;
   const _firstTouchFs = function () {
@@ -526,6 +519,8 @@ function toggleSettings(force) {
 
   if (shouldOpen) {
     wasInGameBeforeSettings = !!document.pointerLockElement;
+    /* Если игра не активна (мы в меню/паузе) — поднимаем z-index */
+    if (!locked || paused) settingsPanel.classList.add('menu-overlay');
     settingsPanel.classList.add('open');
     settingsBtn.classList.add('active');
     if (!isMobile && document.pointerLockElement) document.exitPointerLock();
@@ -533,7 +528,8 @@ function toggleSettings(force) {
   } else {
     settingsPanel.classList.remove('open');
     settingsBtn.classList.remove('active');
-    if (!isMobile && wasInGameBeforeSettings && !dead) lockPointer();
+    settingsPanel.classList.remove('menu-overlay');
+    if (!isMobile && wasInGameBeforeSettings && !dead && !paused) lockPointer();
     wasInGameBeforeSettings = false;
   }
 }
@@ -543,10 +539,26 @@ settingsBtn.addEventListener('click', function (e) {
   toggleSettings();
 });
 
+/* Кнопка настроек в главном меню */
+const menuSettingsBtn = document.getElementById('menuSettingsBtn');
+if (menuSettingsBtn) {
+  menuSettingsBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (settingsPanel.classList.contains('open')) {
+      toggleSettings(false);
+    } else {
+      settingsPanel.classList.add('menu-overlay');
+      settingsPanel.classList.add('open');
+      settingsBtn.classList.add('active');
+      clampSettingsPosition();
+    }
+  });
+}
+
 document.addEventListener('click', function (e) {
   if (panelJustDragged) { panelJustDragged = false; return; }
   if (!settingsPanel.classList.contains('open')) return;
-  if (e.target.closest && e.target.closest('#settings-panel, #btn-settings')) return;
+  if (e.target.closest && e.target.closest('#settings-panel, #btn-settings, #menuSettingsBtn')) return;
   toggleSettings(false);
 });
 
@@ -810,7 +822,6 @@ const DOUBLE_TAP_MS = 280;
 const lastTap = { KeyW: 0, ArrowUp: 0 };
 const doubleLock = { KeyW: false, ArrowUp: false };
 
-/* Проверка: фокус в поле ввода (инпут/текстареа/contenteditable) */
 function isInputFocused() {
   const ae = document.activeElement;
   if (!ae) return false;
@@ -841,7 +852,6 @@ const pauseExitBtn = document.getElementById('pauseExit');
 
 function lockPointer() {
   SFX.resume();
-  /* На мобильных просим полный экран — это жест пользователя */
   if (isMobile) enterFullscreenSafe();
   if (isMobile) {
     locked = true;
@@ -917,7 +927,6 @@ document.addEventListener('pointerlockchange', () => {
   if (isMobile) return;
   const nowLocked = document.pointerLockElement === renderer.domElement;
 
-  /* Открытие панели настроек не должно запускать паузу */
   if (locked && !nowLocked && settingsPanel.classList.contains('open')) {
     locked = false;
     return;
@@ -926,7 +935,6 @@ document.addEventListener('pointerlockchange', () => {
   const wasLocked = locked;
   locked = nowLocked;
 
-  /* Потеря pointerlock при активной игре → открываем паузу */
   if (wasLocked && !nowLocked && !dead && !paused) {
     openPause();
     return;
@@ -958,11 +966,8 @@ document.addEventListener('mousemove', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  /* Не перехватываем клавиши, если фокус в поле ввода
-     (переименование мира, текстовые поля и т. д.) */
   if (isInputFocused()) return;
 
-  /* Пока открыта пауза — обрабатываем только Esc для возврата */
   if (paused) {
     if (e.code === 'Escape' && !e.repeat) {
       e.preventDefault();
@@ -1898,7 +1903,6 @@ function update(dt) {
   updateClouds(dt, player.pos);
   updateSun(dt, player.pos);
 
-  /* Приглушаем звуки мобов, когда игра не активна (меню, настройки, пауза) */
   if (MOBS.setMuted) MOBS.setMuted(!locked || paused);
 
   if (!dead && !paused) {
