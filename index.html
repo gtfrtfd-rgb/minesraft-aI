@@ -66,7 +66,7 @@
   <div class="settings-hint">Прорисовка: <b>2–12</b> чанков (32–192 блока)<br>Меньше — выше FPS, больше — видно дальше</div>
   <div class="settings-hint">Лимит FPS: <b>15 · 30 · 60 · 90 · 120 · 144 · 165 · 180 · 240 · ∞</b><br>Меньше — экономит батарею телефона</div>
   <div class="settings-hint">Режим игры: <b>G</b> — переключить Выживание / Креатив<br>Полёт доступен только в Креативе</div>
-  <div class="settings-hint">На ПК: <b>O</b> — открыть/закрыть · <b>Esc</b> — выйти из полного экрана</div>
+  <div class="settings-hint">На ПК: <b>O</b> — открыть/закрыть · <b>Esc</b> — пауза</div>
 </div>
 
 <div id="death">
@@ -132,9 +132,24 @@
   </div>
 </div>
 
-<!-- ============================================================
-     ПАНЕЛЬ СПИСКА МИРОВ
-     ============================================================ -->
+<div id="pause">
+  <div class="pause-box">
+    <h2>ПАУЗА</h2>
+    <div class="pause-world" id="pauseWorldInfo">—</div>
+    <div class="pause-buttons">
+      <button class="btn primary" id="pauseResume">
+        <span class="btn-icon">▶</span>
+        <span>Продолжить</span>
+      </button>
+      <button class="btn secondary" id="pauseExit">
+        <span class="btn-icon">🚪</span>
+        <span>Выйти в главное меню</span>
+      </button>
+    </div>
+    <div class="pause-hint">На ПК: <b>Esc</b> — вернуться в игру</div>
+  </div>
+</div>
+
 <div id="worlds-panel">
   <div class="worlds-header">
     <h2>Мои миры</h2>
@@ -147,9 +162,6 @@
   </button>
 </div>
 
-<!-- ============================================================
-     МОДАЛКА ПЕРЕИМЕНОВАНИЯ
-     ============================================================ -->
 <div id="worlds-rename">
   <div class="modal-box">
     <h3>Переименовать мир</h3>
@@ -161,9 +173,6 @@
   </div>
 </div>
 
-<!-- ============================================================
-     МОДАЛКА УДАЛЕНИЯ
-     ============================================================ -->
 <div id="worlds-delete">
   <div class="modal-box">
     <h3>Удалить мир?</h3>

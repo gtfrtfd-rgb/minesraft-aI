@@ -4,7 +4,7 @@
    + НАСТРОЙКА ПРОРИСОВКИ (render distance)
    + Мобы скрываются за пределами прорисовки
    + НАСТРОЙКА ЛИМИТА FPS (15 · 30 · 60 · 90 · 120 · 144 · 165 · 180 · 240 · ∞)
-   + DDA-рейкаст блоков (быстрее в ~20 раз)
+   + DDA-рейкаст блоков
    + FIX: prev-клетка при установке блока через диагональный луч
    + РЕЖИМЫ: Выживание и Креатив (G или кнопка в настройках)
    + FIX: полёт доступен ТОЛЬКО в креативе (F, кнопка ✈)
@@ -14,6 +14,8 @@
    + МЕНЕДЖЕР МИРОВ: список, создание, удаление, переименование
    + FIX: пробел и другие клавиши работают в полях ввода
    + FIX: звуки мобов отключены в главном меню / настройках
+   + МЕНЮ ПАУЗЫ (Esc на ПК, ☰ на мобильных)
+   + FIX: на телефоне сразу включается полноэкранный режим
    ============================================================ */
 (function () {
 'use strict';
@@ -125,7 +127,6 @@ function ensureActiveWorld() {
   let list = loadWorldsList();
   let activeId = getActiveWorldId();
 
-  /* Миграция старого одиночного сейва (если есть) */
   if (list.length === 0) {
     const id = generateWorldId();
     const newWorld = {
@@ -255,6 +256,49 @@ const MOBS = (function () {
 })();
 
 MOBS.init(scene);
+
+/* ============================================================
+   ПОЛНОЭКРАННЫЙ РЕЖИМ (мобильные)
+   ------------------------------------------------------------
+   Вызываем при первом жесте — иначе браузер заблокирует.
+   iOS Safari: полноэкранный API работает только для видео,
+   поэтому для iOS остаётся только скрыть адресную строку
+   через scrollTo — это визуально тоже «полный экран».
+   ============================================================ */
+function enterFullscreenSafe() {
+  /* Прячем адресную строку (работает на iOS и Android) */
+  try { window.scrollTo(0, 1); } catch (e) {}
+
+  const el = document.documentElement;
+  const p = el.requestFullscreen ||
+            el.webkitRequestFullscreen ||
+            el.mozRequestFullScreen ||
+            el.msRequestFullscreen;
+  if (!p) return;
+  if (document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullScreenElement ||
+      document.msFullscreenElement) return;
+  try {
+    const res = p.call(el, { navigationUI: 'hide' });
+    if (res && res.catch) res.catch(function () {});
+  } catch (e) {}
+}
+
+/* Одноразовый перехват первого касания для мобильных:
+   срабатывает даже до нажатия кнопки ИГРАТЬ */
+if (isMobile) {
+  let _fsTriggered = false;
+  const _firstTouchFs = function () {
+    if (_fsTriggered) return;
+    _fsTriggered = true;
+    enterFullscreenSafe();
+    document.removeEventListener('touchstart', _firstTouchFs, true);
+    document.removeEventListener('click', _firstTouchFs, true);
+  };
+  document.addEventListener('touchstart', _firstTouchFs, true);
+  document.addEventListener('click', _firstTouchFs, true);
+}
 
 /* ============================================================
    1. ПОДСВЕТКА
@@ -440,15 +484,15 @@ modeBtn.addEventListener('click', function (e) {
 
 /* --- Полный экран --- */
 function isFullscreen() {
-  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+  return !!(document.fullscreenElement ||
+            document.webkitFullscreenElement ||
+            document.mozFullScreenElement ||
+            document.msFullscreenElement);
 }
 fsCheckbox.checked = isFullscreen();
 
 function enterFullscreen() {
-  const el = document.documentElement;
-  const p = el.requestFullscreen || el.webkitRequestFullscreen ||
-            el.mozRequestFullScreen || el.msRequestFullscreen;
-  if (p) { try { p.call(el); } catch (e) {} }
+  enterFullscreenSafe();
 }
 function exitFullscreen() {
   const p = document.exitFullscreen || document.webkitExitFullscreen ||
@@ -760,6 +804,7 @@ function respawn() {
    ============================================================ */
 const keys = Object.create(null);
 let locked = false;
+let paused = false;
 
 const DOUBLE_TAP_MS = 280;
 const lastTap = { KeyW: 0, ArrowUp: 0 };
@@ -789,9 +834,15 @@ function toggleFly() {
 
 const menu = document.getElementById('menu');
 const startBtn = document.getElementById('startBtn');
+const pauseEl = document.getElementById('pause');
+const pauseWorldInfo = document.getElementById('pauseWorldInfo');
+const pauseResumeBtn = document.getElementById('pauseResume');
+const pauseExitBtn = document.getElementById('pauseExit');
 
 function lockPointer() {
   SFX.resume();
+  /* На мобильных просим полный экран — это жест пользователя */
+  if (isMobile) enterFullscreenSafe();
   if (isMobile) {
     locked = true;
     menu.style.display = 'none';
@@ -800,21 +851,92 @@ function lockPointer() {
   renderer.domElement.requestPointerLock();
 }
 
+/* --- Пауза --- */
+function openPause() {
+  if (dead || paused) return;
+  paused = true;
+  if (pauseEl) pauseEl.style.display = 'flex';
+  if (menu) menu.style.display = 'none';
+  if (pauseWorldInfo) {
+    const w = getActiveWorld();
+    const modeStr = (gameMode === 'creative') ? 'Креатив' : 'Выживание';
+    pauseWorldInfo.textContent = (w ? w.name : 'Мир') + '  ·  ' + modeStr;
+  }
+  if (!isMobile && document.pointerLockElement) {
+    try { document.exitPointerLock(); } catch (e) {}
+  }
+}
+
+function closePause() {
+  if (!paused) return;
+  paused = false;
+  if (pauseEl) pauseEl.style.display = 'none';
+}
+
+function exitToMainMenu() {
+  if (dirty) saveGame();
+  closePause();
+  locked = false;
+  for (const k in keys) keys[k] = false;
+  player.crouch = false;
+  stopBreaking();
+  doubleLock.KeyW = false;
+  doubleLock.ArrowUp = false;
+  if (menu) menu.style.display = 'flex';
+  if (document.pointerLockElement) {
+    try { document.exitPointerLock(); } catch (e) {}
+  }
+}
+
+if (pauseResumeBtn) {
+  pauseResumeBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    closePause();
+    if (isMobile) {
+      enterFullscreenSafe();
+      locked = true;
+      menu.style.display = 'none';
+    } else {
+      lockPointer();
+    }
+  });
+}
+if (pauseExitBtn) {
+  pauseExitBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    exitToMainMenu();
+  });
+}
+
 startBtn.addEventListener('click', lockPointer);
 renderer.domElement.addEventListener('click', function () {
-  if (!isMobile && !locked && !dead && !settingsPanel.classList.contains('open')) lockPointer();
+  if (!isMobile && !locked && !dead && !paused && !settingsPanel.classList.contains('open')) lockPointer();
 });
 
 document.addEventListener('pointerlockchange', () => {
   if (isMobile) return;
   const nowLocked = document.pointerLockElement === renderer.domElement;
 
+  /* Открытие панели настроек не должно запускать паузу */
   if (locked && !nowLocked && settingsPanel.classList.contains('open')) {
     locked = false;
     return;
   }
 
+  const wasLocked = locked;
   locked = nowLocked;
+
+  /* Потеря pointerlock при активной игре → открываем паузу */
+  if (wasLocked && !nowLocked && !dead && !paused) {
+    openPause();
+    return;
+  }
+
+  if (paused) {
+    menu.style.display = 'none';
+    return;
+  }
+
   menu.style.display = (locked || dead) ? 'none' : 'flex';
   if (!locked) {
     for (const k in keys) keys[k] = false;
@@ -839,6 +961,21 @@ document.addEventListener('keydown', (e) => {
   /* Не перехватываем клавиши, если фокус в поле ввода
      (переименование мира, текстовые поля и т. д.) */
   if (isInputFocused()) return;
+
+  /* Пока открыта пауза — обрабатываем только Esc для возврата */
+  if (paused) {
+    if (e.code === 'Escape' && !e.repeat) {
+      e.preventDefault();
+      closePause();
+      if (isMobile) {
+        locked = true;
+        menu.style.display = 'none';
+      } else {
+        lockPointer();
+      }
+    }
+    return;
+  }
 
   if (dead) return;
   if (e.code === 'KeyO' && !e.repeat) {
@@ -887,7 +1024,7 @@ document.addEventListener('contextmenu', e => e.preventDefault());
 let mouseDown = [false, false, false];
 renderer.domElement.addEventListener('mousedown', (e) => {
   if (isMobile) return;
-  if (!locked || dead) return;
+  if (!locked || dead || paused) return;
   mouseDown[e.button] = true;
   if (e.button === 0) {
     breaking.active = false;
@@ -908,7 +1045,7 @@ renderer.domElement.addEventListener('mouseup', (e) => {
 
 document.addEventListener('wheel', (e) => {
   if (isMobile) return;
-  if (!locked || dead) return;
+  if (!locked || dead || paused) return;
   const d = e.deltaY > 0 ? 1 : -1;
   selectSlot((selected + d + HOTBAR.length) % HOTBAR.length);
 }, { passive: true });
@@ -969,11 +1106,11 @@ if (isMobile) {
 
   function isUIElement(target) {
     if (!target) return false;
-    return !!(target.closest && target.closest('#joystick, #mob-buttons, #btn-menu, #btn-settings, #settings-panel, #hotbar, #menu, #death, #worlds-panel, #worlds-rename, #worlds-delete'));
+    return !!(target.closest && target.closest('#joystick, #mob-buttons, #btn-menu, #btn-settings, #settings-panel, #hotbar, #menu, #death, #worlds-panel, #worlds-rename, #worlds-delete, #pause'));
   }
 
   document.addEventListener('touchstart', function (e) {
-    if (dead || !locked) return;
+    if (dead || !locked || paused) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
       if (isUIElement(t.target)) continue;
@@ -986,7 +1123,7 @@ if (isMobile) {
   }, { passive: true });
 
   document.addEventListener('touchmove', function (e) {
-    if (dead || !locked) return;
+    if (dead || !locked || paused) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches[i];
       if (t.identifier !== lookTouchId) continue;
@@ -1035,7 +1172,7 @@ if (isMobile) {
 
   bindHold(btnBreak,
     function () {
-      if (dead || !locked) return;
+      if (dead || !locked || paused) return;
       mouseDown[0] = true;
       breaking.active = false; breaking.progress = 0; breaking.stage = 0;
       creativeBrokeThisClick = false;
@@ -1052,19 +1189,19 @@ if (isMobile) {
     btnPlace.addEventListener('touchstart', function (e) {
       e.preventDefault(); e.stopPropagation();
       btnPlace.classList.add('pressed');
-      if (!dead && locked) placeBlock();
+      if (!dead && locked && !paused) placeBlock();
       setTimeout(function () { btnPlace.classList.remove('pressed'); }, 120);
     }, { passive: false });
   }
 
   bindHold(btnJump,
-    function () { if (!dead && locked) keys['Space'] = true; },
+    function () { if (!dead && locked && !paused) keys['Space'] = true; },
     function () { keys['Space'] = false; }
   );
 
   bindHold(btnDown,
     function () {
-      if (dead || !locked) return;
+      if (dead || !locked || paused) return;
       mobileInput.down = true;
       if (!player.fly) player.crouch = true;
     },
@@ -1078,7 +1215,7 @@ if (isMobile) {
     btnFly.addEventListener('touchstart', function (e) {
       e.preventDefault(); e.stopPropagation();
       btnFly.classList.add('pressed');
-      if (!dead && locked) toggleFly();
+      if (!dead && locked && !paused) toggleFly();
       setTimeout(function () { btnFly.classList.remove('pressed'); }, 120);
     }, { passive: false });
   }
@@ -1086,19 +1223,8 @@ if (isMobile) {
   if (btnMenu) {
     btnMenu.addEventListener('touchstart', function (e) {
       e.preventDefault(); e.stopPropagation();
-      if (menu.style.display === 'flex') {
-        locked = true;
-        menu.style.display = 'none';
-      } else {
-        locked = false;
-        menu.style.display = 'flex';
-        for (const k in keys) keys[k] = false;
-        mouseDown[0] = false;
-        mobileInput.down = false;
-        player.crouch = false;
-        stopBreaking();
-        joyReset();
-      }
+      if (dead) return;
+      if (!paused) openPause();
     }, { passive: false });
   }
 
@@ -1201,7 +1327,7 @@ function tryAttackMob() {
 }
 
 function updateBreaking(dt) {
-  if (!locked || !mouseDown[0] || !currentTarget || dead) {
+  if (!locked || !mouseDown[0] || !currentTarget || dead || paused) {
     if (breaking.active) stopBreaking();
     else crackMesh.visible = false;
     return;
@@ -1772,10 +1898,10 @@ function update(dt) {
   updateClouds(dt, player.pos);
   updateSun(dt, player.pos);
 
-  /* Приглушаем звуки мобов, когда игра не активна (меню, настройки) */
-  if (MOBS.setMuted) MOBS.setMuted(!locked);
+  /* Приглушаем звуки мобов, когда игра не активна (меню, настройки, пауза) */
+  if (MOBS.setMuted) MOBS.setMuted(!locked || paused);
 
-  if (!dead) {
+  if (!dead && !paused) {
     const sinYaw = Math.sin(yaw);
     const cosYaw = Math.cos(yaw);
     _fwd.set(-sinYaw, 0, -cosYaw);
@@ -1951,7 +2077,7 @@ function update(dt) {
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
 
-  currentTarget = (locked && !dead) ? raycastBlock() : null;
+  currentTarget = (locked && !dead && !paused) ? raycastBlock() : null;
   if (currentTarget) {
     hlBox.visible = true;
     hlBox.position.set(currentTarget.x + 0.5, currentTarget.y + 0.5, currentTarget.z + 0.5);
@@ -1959,7 +2085,7 @@ function update(dt) {
     hlBox.visible = false;
   }
 
-  if (locked && mouseDown[0] && !dead) {
+  if (locked && mouseDown[0] && !dead && !paused) {
     if (tryAttackMob()) {
       if (breaking.active) stopBreaking();
     }
